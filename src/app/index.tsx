@@ -1,98 +1,117 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import ImportModal from '../components/ImportModal';
+import Library from '../components/Library';
+import useLibrary from '../hooks/useLibrary';
+import type { Chapter } from '../types';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
+import { Colors } from "@/constants/theme";
+const theme = {
+  text: Colors.light.text,
+  primary: Colors.light.primary,
+  subtext: Colors.light.textSecondary,
+  background: Colors.light.background,
+};
+
+
+export default function Index() {
+  const { books, addBook, removeBook } = useLibrary();
+  const router = useRouter();
+
+  const [modalVisible, setModalVisible] = useState(false);
+
+  function handleLoad({
+    title,
+    author,
+    cover,
+    publisher,
+    chapters,
+  }: {
+    title: string;
+    author?: string;
+    cover?: string;
+    publisher?: string;
+    chapters: Chapter[];
+  }) {
+    const book = {
+      id: Date.now().toString(),
+      title: title || 'Unknown Title',
+      author: author || undefined,
+      cover: cover || undefined,
+      publisher: publisher || undefined,
+      chapters,
+      currentChapter: 0,
+      position: 0,
+      createdAt: Date.now(),
+    };
+
+    addBook(book);
+    setModalVisible(false);
   }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>My Library</Text>
 
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+        <TouchableOpacity
+          style={styles.importBtn}
+          onPress={() => setModalVisible(true)}
+        >
+          <Text style={styles.importText}>Import</Text>
+        </TouchableOpacity>
+      </View>
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+      <Library
+        books={books}
+        onOpen={(book) => {
+          router.push({
+            pathname: '/reader',
+            params: {
+              book: JSON.stringify(book),
+            },
+          });
+        }}
+        onDelete={removeBook}
+      />
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+      <ImportModal
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        onLoad={handleLoad}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
+    padding: 20,
+    marginTop: 40,
+    backgroundColor: theme.background,
+  },
+  header: {
     flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
+    marginBottom: 20,
   },
   title: {
-    textAlign: 'center',
+    fontSize: 24,
+    fontWeight: '700',
+    color: theme.text,
   },
-  code: {
-    textTransform: 'uppercase',
+  importBtn: {
+    backgroundColor: theme.primary,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 10,
   },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
+  importText: {
+    color: '#fff',
+    fontWeight: '600',
   },
 });
