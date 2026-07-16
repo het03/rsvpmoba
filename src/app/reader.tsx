@@ -29,11 +29,11 @@ import useReader from '../hooks/useReader';
 const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
 
 export default function ReaderScreen() {
-    const params = useLocalSearchParams();
+    const { id } = useLocalSearchParams<{ id?: string }>();
 
-    const book = JSON.parse(params.book as string);
-
-    const { updateProgress } = useLibrary();
+    const { books, hydrated, updateProgress } = useLibrary();
+    const foundBook = books.find((candidate) => candidate.id === id);
+    const book = foundBook ?? { id: '', title: '', chapters: [], currentChapter: 0, position: 0, createdAt: 0 };
 
     const loaded = useRef(false);
 
@@ -245,6 +245,14 @@ export default function ReaderScreen() {
             setTocVisible(false); // Turn off visibility after animation finishes
         });
     };
+
+    if (!hydrated || !foundBook) {
+        return (
+            <SafeAreaView style={styles.container}>
+                <Text style={{ color: Colors.light.text }}>{hydrated ? 'Book unavailable.' : 'Loading book…'}</Text>
+            </SafeAreaView>
+        );
+    }
 
     return (
         <SafeAreaView style={styles.container}>

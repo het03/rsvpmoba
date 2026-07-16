@@ -70,7 +70,7 @@ export default function Index() {
           router.push({
             pathname: '/reader',
             params: {
-              book: JSON.stringify(book),
+              id: book.id,
             },
           });
         }}
