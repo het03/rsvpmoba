@@ -4,12 +4,14 @@ import {
     Animated,
     AppState,
     AppStateStatus,
+    Dimensions,
     FlatList,
     Modal,
+    Pressable,
     StyleSheet,
     Text,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -58,7 +60,6 @@ export default function ReaderScreen() {
 
     const colors = (Colors as any)[readerTheme] ?? Colors.light;
     const { setTheme: setAppTheme } = useAppTheme();
-    const [tocVisible, setTocVisible] = useState(false);
     const prevColorsRef = useRef(colors);
     const [prevColors, setPrevColors] = useState(colors);
     const anim = useRef(new Animated.Value(0)).current;
@@ -203,11 +204,93 @@ export default function ReaderScreen() {
     const bgOpacityNext = anim;
     const bgOpacityPrev = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
 
+    const SCREEN_HEIGHT = Dimensions.get('window').height;
+    const [tocVisible, setTocVisible] = useState(false);
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+    const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+
+    useEffect(() => {
+        if (tocVisible) {
+            // Trigger entry animations in parallel when modal opens
+            Animated.parallel([
+                Animated.timing(fadeAnim, {
+                    toValue: 1,
+                    duration: 300,
+                    useNativeDriver: true,
+                }),
+                Animated.timing(slideAnim, {
+                    toValue: 0, // Slides up to its original position
+                    duration: 300,
+                    useNativeDriver: true,
+                }),
+            ]).start();
+        }
+    }, [tocVisible]);
+
+    const handleClose = () => {
+        // Trigger exit animations in parallel, then hide the modal
+        Animated.parallel([
+            Animated.timing(fadeAnim, {
+                toValue: 0,
+                duration: 250,
+                useNativeDriver: true,
+            }),
+            Animated.timing(slideAnim, {
+                toValue: SCREEN_HEIGHT, // Slides back down off-screen
+                duration: 250,
+                useNativeDriver: true,
+            }),
+        ]).start(() => {
+            setTocVisible(false); // Turn off visibility after animation finishes
+        });
+    };
+
     return (
         <SafeAreaView style={styles.container}>
             {/* Background cross-fade layers */}
             <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: prevColors.background, opacity: bgOpacityPrev }]} />
             <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, opacity: bgOpacityNext }]} />
+
+            <TouchableOpacity onPress={() => setTocVisible(true)} style={{ alignSelf: 'flex-start', marginBottom: 8 }}>
+                <SymbolView name={{ ios: 'line.horizontal.3', android: 'menu', web: 'menu' }} size={20} tintColor={colors.primary} />
+            </TouchableOpacity>
+
+            <Modal visible={tocVisible} transparent animationType="none" onRequestClose={handleClose}>
+
+                <Pressable style={{ flex: 1, justifyContent: 'center' }} onPress={handleClose}>
+                    <Animated.View
+                        style={{
+                            ...StyleSheet.absoluteFill,
+                            backgroundColor: 'rgba(0,0,0,0.5)',
+                            opacity: fadeAnim // Links opacity to fade animation
+                        }}
+                    />
+
+                    <Animated.View
+                        style={{
+                            backgroundColor: '#fff',
+                            margin: 20,
+                            borderRadius: 12,
+                            maxHeight: '80%',
+                            transform: [{ translateY: slideAnim }] // Links vertical position to slide animation
+                        }}
+                        onTouchStart={(e) => e.stopPropagation()} // Halts press propagation on layout level
+                    >
+                        <FlatList
+                            data={chapters}
+                            keyExtractor={(_, idx) => String(idx)}
+                            renderItem={(props: { item: any; index: number }) => (
+                                <TouchableOpacity
+                                    onPress={() => { goToChapter(props.index); handleClose(); }}
+                                    style={{ padding: 12, borderBottomWidth: 1, borderColor: '#eee' }}
+                                >
+                                    <Text>{props.index + 1}. {props.item?.title}</Text>
+                                </TouchableOpacity>
+                            )}
+                        />
+                    </Animated.View>
+                </Pressable>
+            </Modal>
 
             <TouchableOpacity
                 style={styles.backButton}
@@ -219,10 +302,6 @@ export default function ReaderScreen() {
             <Text style={[styles.chapterTitle, { color: colors.textSecondary ?? colors.text }]}>
                 Chapter {chapterIndex + 1} / {chapters.length}
             </Text>
-
-            <TouchableOpacity onPress={() => setTocVisible(true)} style={{ alignSelf: 'center', marginBottom: 8 }}>
-                <Text style={{ color: colors.primary }}>View Table of Contents</Text>
-            </TouchableOpacity>
 
             <ReaderGestures
                 onNext={next10}
@@ -241,22 +320,6 @@ export default function ReaderScreen() {
                     </View>
                 </View>
             </ReaderGestures>
-
-            <Modal visible={tocVisible} transparent animationType="slide" onRequestClose={() => setTocVisible(false)}>
-                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center' }}>
-                    <View style={{ backgroundColor: '#fff', margin: 20, borderRadius: 12, maxHeight: '80%' }}>
-                        <FlatList
-                            data={chapters}
-                            keyExtractor={(_, idx) => String(idx)}
-                            renderItem={(props: { item: any; index: number }) => (
-                                <TouchableOpacity onPress={() => { goToChapter(props.index); setTocVisible(false); }} style={{ padding: 12, borderBottomWidth: 1, borderColor: '#eee' }}>
-                                    <Text>{props.index + 1}. {props.item?.title}</Text>
-                                </TouchableOpacity>
-                            )}
-                        />
-                    </View>
-                </View>
-            </Modal>
 
             <View style={styles.progressSection}>
                 <ProgressBar progress={progress} />
