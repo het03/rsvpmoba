@@ -62,6 +62,34 @@ export default function ReaderScreen() {
         goToChapter,
     } = useReader();
 
+    const latestProgress = useRef({
+        bookId: '', currentChapter: 0, absolutePosition: 0, position: 0,
+        wpm: 300, fontSize: 52, theme: 'light' as 'light' | 'dark' | 'sepia',
+    });
+    latestProgress.current = {
+        bookId: book.id,
+        currentChapter: chapterIndex,
+        absolutePosition,
+        position: index,
+        wpm,
+        fontSize,
+        theme: readerTheme,
+    };
+    const saveLatestProgress = useRef(async () => {});
+    saveLatestProgress.current = async () => {
+        if (!loaded.current || !latestProgress.current.bookId) return;
+        const current = latestProgress.current;
+        await updateProgress(current.bookId, {
+            currentChapter: current.currentChapter,
+            absolutePosition: current.absolutePosition,
+            position: current.position,
+            wpm: current.wpm,
+            fontSize: current.fontSize,
+            theme: current.theme,
+            lastOpened: Date.now(),
+        });
+    };
+
     const colors = (Colors as any)[readerTheme] ?? Colors.light;
     const { setTheme: setAppTheme } = useAppTheme();
     const prevColorsRef = useRef(colors);
@@ -108,9 +136,8 @@ export default function ReaderScreen() {
         // apply book theme globally when opening
         if (book.theme) setAppTheme(book.theme as any);
 
-        setTimeout(() => {
-            loaded.current = true;
-        }, 300);
+        const timeout = setTimeout(() => { loaded.current = true; }, 300);
+        return () => clearTimeout(timeout);
     }, [book.id]);
 
     // Animate theme background/card when colors change
@@ -153,61 +180,34 @@ export default function ReaderScreen() {
         }
     }, [playing, absolutePosition]);
 
-    // Save on unmount / leaving reader
+    // Save once on unmount / leaving reader. The ref prevents stale state and repeated cleanup saves.
     useEffect(() => {
         return () => {
-            if (!loaded.current) return;
-            updateProgress(book.id, {
-                currentChapter: chapterIndex,
-                absolutePosition,
-                position: index,
-                wpm,
-                fontSize,
-                theme: readerTheme,
-                lastOpened: Date.now(),
-            });
+            void saveLatestProgress.current();
         };
-    }, [book.id, index, chapterIndex, wpm, fontSize, readerTheme, absolutePosition]);
+    }, []);
 
     // AppState listener to save when app goes to background
     useEffect(() => {
         function handleChange(state: AppStateStatus) {
             if (state !== 'active') {
-                updateProgress(book.id, {
-                    currentChapter: chapterIndex,
-                    absolutePosition,
-                    position: index,
-                    wpm,
-                    fontSize,
-                    theme: readerTheme,
-                    lastOpened: Date.now(),
-                });
+                void saveLatestProgress.current();
             }
         }
 
         const sub = AppState.addEventListener('change', handleChange);
 
         return () => sub.remove();
-    }, [book.id, index, chapterIndex, wpm, fontSize, readerTheme, absolutePosition]);
+    }, []);
 
     // Auto-save every 30 seconds
     useEffect(() => {
         const id = setInterval(() => {
-            if (!loaded.current) return;
-            updateProgress(book.id, {
-                currentChapter: chapterIndex,
-                absolutePosition,
-                position: index,
-                wpm,
-                fontSize,
-                theme: readerTheme,
-                lastOpened: Date.now(),
-            });
+            void saveLatestProgress.current();
         }, 30000);
 
         return () => clearInterval(id);
-    }, [book.id, index, chapterIndex, wpm, fontSize, readerTheme, absolutePosition]);
-    ;
+    }, []);
 
     const bgOpacityNext = anim;
     const bgOpacityPrev = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
