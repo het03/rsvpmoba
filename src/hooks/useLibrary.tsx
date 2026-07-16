@@ -4,6 +4,7 @@ import { loadLibrary, saveLibrary } from '../utils/storage';
 
 interface Progress {
     currentChapter?: number;
+    absolutePosition?: number;
     position?: number;
     wpm?: number;
     fontSize?: number;
@@ -70,7 +71,8 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         book.id === id
             ? {
                 ...book,
-                currentChapter: progress.currentChapter ?? book.currentChapter,
+                    currentChapter: progress.currentChapter ?? book.currentChapter,
+                    absolutePosition: progress.absolutePosition ?? book.absolutePosition,
                 position: progress.position ?? book.position,
                 wpm: progress.wpm ?? book.wpm,
                 fontSize: progress.fontSize ?? book.fontSize,

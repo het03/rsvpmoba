@@ -41,10 +41,13 @@ export default function Library({
                         0
                     );
 
-                    const progress =
-                        totalWords > 0
-                            ? Math.round((book.position / totalWords) * 100)
-                            : 0;
+                    const completedBeforeChapter = book.chapters
+                        .slice(0, book.currentChapter)
+                        .reduce((count, chapter) => count + chapter.text.trim().split(/\s+/).filter(Boolean).length, 0);
+                    const absolutePosition = book.absolutePosition ?? completedBeforeChapter + book.position;
+                    const progress = totalWords > 0
+                        ? Math.round((Math.min(totalWords, absolutePosition + 1) / totalWords) * 100)
+                        : 0;
 
                     return (
                         <View key={book.id} style={styles.bookRow}>

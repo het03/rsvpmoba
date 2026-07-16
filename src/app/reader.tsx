@@ -44,6 +44,8 @@ export default function ReaderScreen() {
         chapterIndex,
         chapters,
         progress,
+        bookProgress,
+        absolutePosition,
         playing,
         wpm,
         eta,
@@ -129,9 +131,10 @@ export default function ReaderScreen() {
 
         updateProgress(book.id, {
             currentChapter: chapterIndex,
+            absolutePosition,
             position: index,
         });
-    }, [index, chapterIndex, words.length]);
+    }, [index, chapterIndex, words.length, absolutePosition]);
 
     // Auto-save when pausing
     useEffect(() => {
@@ -140,6 +143,7 @@ export default function ReaderScreen() {
         if (!playing) {
             updateProgress(book.id, {
                 currentChapter: chapterIndex,
+                absolutePosition,
                 position: index,
                 wpm,
                 fontSize,
@@ -147,7 +151,7 @@ export default function ReaderScreen() {
                 lastOpened: Date.now(),
             });
         }
-    }, [playing]);
+    }, [playing, absolutePosition]);
 
     // Save on unmount / leaving reader
     useEffect(() => {
@@ -155,6 +159,7 @@ export default function ReaderScreen() {
             if (!loaded.current) return;
             updateProgress(book.id, {
                 currentChapter: chapterIndex,
+                absolutePosition,
                 position: index,
                 wpm,
                 fontSize,
@@ -162,7 +167,7 @@ export default function ReaderScreen() {
                 lastOpened: Date.now(),
             });
         };
-    }, [book.id, index, chapterIndex, wpm, fontSize, readerTheme]);
+    }, [book.id, index, chapterIndex, wpm, fontSize, readerTheme, absolutePosition]);
 
     // AppState listener to save when app goes to background
     useEffect(() => {
@@ -170,6 +175,7 @@ export default function ReaderScreen() {
             if (state !== 'active') {
                 updateProgress(book.id, {
                     currentChapter: chapterIndex,
+                    absolutePosition,
                     position: index,
                     wpm,
                     fontSize,
@@ -182,7 +188,7 @@ export default function ReaderScreen() {
         const sub = AppState.addEventListener('change', handleChange);
 
         return () => sub.remove();
-    }, [book.id, index, chapterIndex, wpm, fontSize, readerTheme]);
+    }, [book.id, index, chapterIndex, wpm, fontSize, readerTheme, absolutePosition]);
 
     // Auto-save every 30 seconds
     useEffect(() => {
@@ -190,6 +196,7 @@ export default function ReaderScreen() {
             if (!loaded.current) return;
             updateProgress(book.id, {
                 currentChapter: chapterIndex,
+                absolutePosition,
                 position: index,
                 wpm,
                 fontSize,
@@ -199,7 +206,7 @@ export default function ReaderScreen() {
         }, 30000);
 
         return () => clearInterval(id);
-    }, [book.id, index, chapterIndex, wpm, fontSize, readerTheme]);
+    }, [book.id, index, chapterIndex, wpm, fontSize, readerTheme, absolutePosition]);
     ;
 
     const bgOpacityNext = anim;
@@ -333,7 +340,7 @@ export default function ReaderScreen() {
             </ReaderGestures>
 
             <View style={styles.progressSection}>
-                <ProgressBar progress={progress} />
+                <ProgressBar progress={bookProgress} />
 
                 <View style={styles.stats}>
                     <Text style={[styles.stat, { color: colors.subtext ?? colors.textSecondary }]}>

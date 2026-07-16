@@ -115,13 +115,28 @@ export default function useReader() {
     function calculateETA() {
         if (words.length === 0 || index >= words.length) return 0;
 
-        return words.slice(index).reduce((seconds, currentWord) => {
+        const currentChapterSeconds = words.slice(index).reduce((seconds, currentWord) => {
             const delay = (60000 / wpm) * getPauseMultiplier(currentWord);
             return seconds + delay / 1000;
         }, 0);
+
+        const laterChapterSeconds = chapters.slice(chapterIndex + 1).reduce((seconds, chapter) => {
+            return seconds + parseText(chapter.text).reduce((chapterTotal, currentWord) => {
+                return chapterTotal + ((60000 / wpm) * getPauseMultiplier(currentWord)) / 1000;
+            }, 0);
+        }, 0);
+
+        return currentChapterSeconds + laterChapterSeconds;
     }
 
     const eta = Math.max(0, Math.round(calculateETA()));
+
+    const chapterWordOffset = chapters
+        .slice(0, chapterIndex)
+        .reduce((total, chapter) => total + parseText(chapter.text).length, 0);
+    const totalWords = chapters.reduce((total, chapter) => total + parseText(chapter.text).length, 0);
+    const absolutePosition = totalWords === 0 ? 0 : chapterWordOffset + index;
+    const bookProgress = totalWords === 0 ? 0 : Math.min(1, (absolutePosition + 1) / totalWords);
 
     return {
         words,
@@ -130,6 +145,9 @@ export default function useReader() {
         chapters,
         chapterIndex,
         progress,
+        bookProgress,
+        absolutePosition,
+        totalWords,
         playing,
         wpm,
         eta,

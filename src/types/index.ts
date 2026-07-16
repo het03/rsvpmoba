@@ -9,6 +9,8 @@ export interface Book {
     author?: string;
     chapters: Chapter[];
     currentChapter: number;
+    /** Word offset within the complete book. Older records may not have this. */
+    absolutePosition?: number;
     position: number;
     createdAt: number;
     // Persistent reading state
