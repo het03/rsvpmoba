@@ -26,6 +26,8 @@ import useAppTheme from '@/hooks/useAppTheme';
 import useLibrary from '../hooks/useLibrary';
 import useReader from '../hooks/useReader';
 
+const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
+
 export default function ReaderScreen() {
     const params = useLocalSearchParams();
 
@@ -63,7 +65,6 @@ export default function ReaderScreen() {
     const prevColorsRef = useRef(colors);
     const [prevColors, setPrevColors] = useState(colors);
     const anim = useRef(new Animated.Value(0)).current;
-    const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
     type ReaderThemeType = 'light' | 'dark' | 'sepia';
     const themeOrder: ReaderThemeType[] = ['light', 'dark', 'sepia'];
     const indicatorX = useRef(new Animated.Value(0)).current;
@@ -251,57 +252,59 @@ export default function ReaderScreen() {
             <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: prevColors.background, opacity: bgOpacityPrev }]} />
             <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, opacity: bgOpacityNext }]} />
 
-            <TouchableOpacity onPress={() => setTocVisible(true)} style={{ alignSelf: 'flex-start', marginBottom: 8 }}>
-                <SymbolView name={{ ios: 'line.horizontal.3', android: 'menu', web: 'menu' }} size={20} tintColor={colors.primary} />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <TouchableOpacity
+                    style={styles.backButton}
+                    onPress={() => router.back()}
+                >
+                    <SymbolView name={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }} size={20} tintColor={colors.primary} />
+                </TouchableOpacity>
 
-            <Modal visible={tocVisible} transparent animationType="none" onRequestClose={handleClose}>
+                <Text style={[styles.chapterTitle, { color: colors.textSecondary ?? colors.text }]}>
+                    Chapter {chapterIndex + 1} / {chapters.length}
+                </Text>
 
-                <Pressable style={{ flex: 1, justifyContent: 'center' }} onPress={handleClose}>
-                    <Animated.View
-                        style={{
-                            ...StyleSheet.absoluteFill,
-                            backgroundColor: 'rgba(0,0,0,0.5)',
-                            opacity: fadeAnim // Links opacity to fade animation
-                        }}
-                    />
+                <TouchableOpacity onPress={() => setTocVisible(true)} style={{ marginBottom: 8 }}>
+                    <SymbolView name={{ ios: 'line.horizontal.3', android: 'menu', web: 'menu' }} size={20} tintColor={colors.primary} />
+                </TouchableOpacity>
 
-                    <Animated.View
-                        style={{
-                            backgroundColor: '#fff',
-                            margin: 20,
-                            borderRadius: 12,
-                            maxHeight: '80%',
-                            transform: [{ translateY: slideAnim }] // Links vertical position to slide animation
-                        }}
-                        onTouchStart={(e) => e.stopPropagation()} // Halts press propagation on layout level
-                    >
-                        <FlatList
-                            data={chapters}
-                            keyExtractor={(_, idx) => String(idx)}
-                            renderItem={(props: { item: any; index: number }) => (
-                                <TouchableOpacity
-                                    onPress={() => { goToChapter(props.index); handleClose(); }}
-                                    style={{ padding: 12, borderBottomWidth: 1, borderColor: '#eee' }}
-                                >
-                                    <Text>{props.index + 1}. {props.item?.title}</Text>
-                                </TouchableOpacity>
-                            )}
+                <Modal visible={tocVisible} transparent animationType="none" onRequestClose={handleClose}>
+
+                    <Pressable style={{ flex: 1, justifyContent: 'center' }} onPress={handleClose}>
+                        <Animated.View
+                            style={{
+                                ...StyleSheet.absoluteFill,
+                                backgroundColor: 'rgba(0,0,0,0.5)',
+                                opacity: fadeAnim // Links opacity to fade animation
+                            }}
                         />
-                    </Animated.View>
-                </Pressable>
-            </Modal>
 
-            <TouchableOpacity
-                style={styles.backButton}
-                onPress={() => router.back()}
-            >
-                <Text style={styles.backText}>Library</Text>
-            </TouchableOpacity>
-
-            <Text style={[styles.chapterTitle, { color: colors.textSecondary ?? colors.text }]}>
-                Chapter {chapterIndex + 1} / {chapters.length}
-            </Text>
+                        <Animated.View
+                            style={{
+                                backgroundColor: '#fff',
+                                margin: 20,
+                                borderRadius: 12,
+                                maxHeight: '80%',
+                                transform: [{ translateY: slideAnim }] // Links vertical position to slide animation
+                            }}
+                            onTouchStart={(e) => e.stopPropagation()} // Halts press propagation on layout level
+                        >
+                            <FlatList
+                                data={chapters}
+                                keyExtractor={(_, idx) => String(idx)}
+                                renderItem={(props: { item: any; index: number }) => (
+                                    <TouchableOpacity
+                                        onPress={() => { goToChapter(props.index); handleClose(); }}
+                                        style={{ padding: 12, borderBottomWidth: 1, borderColor: '#eee' }}
+                                    >
+                                        <Text>{props.index + 1}. {props.item?.title}</Text>
+                                    </TouchableOpacity>
+                                )}
+                            />
+                        </Animated.View>
+                    </Pressable>
+                </Modal>
+            </View>
 
             <ReaderGestures
                 onNext={next10}
