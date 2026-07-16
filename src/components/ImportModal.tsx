@@ -41,6 +41,15 @@ export default function ImportModal({
     const [bookPublisher, setBookPublisher] = useState<string | undefined>(undefined);
     const [importedChapters, setImportedChapters] = useState<Chapter[]>([]);
 
+    function resetImport() {
+        setText('');
+        setBookTitle('');
+        setBookAuthor('');
+        setBookCover(undefined);
+        setBookPublisher(undefined);
+        setImportedChapters([]);
+    }
+
     async function chooseFile() {
         try {
             const result = await DocumentPicker.getDocumentAsync({
@@ -59,11 +68,13 @@ export default function ImportModal({
 
             if (name.endsWith(".epub")) {
                 const response = await fetch(asset.uri);
+                if (!response.ok) throw new Error('Unable to read the selected EPUB');
                 const buffer = await response.arrayBuffer();
 
                 const epub = await extractEPUB(buffer);
 
                 chapters = epub.chapters;
+                if (chapters.length === 0) throw new Error('The EPUB contains no readable chapters');
 
                 setBookTitle(epub.metadata.title || "Unknown Title");
                 setBookAuthor(epub.metadata.author || "Unknown Author");
@@ -77,6 +88,7 @@ export default function ImportModal({
                 );
             } else {
                 const response = await fetch(asset.uri);
+                if (!response.ok) throw new Error('Unable to read the selected text file');
                 const contents = await response.text();
 
                 chapters = [
@@ -88,6 +100,8 @@ export default function ImportModal({
 
                 setBookTitle(asset.name.replace(/\.txt$/i, ""));
                 setBookAuthor("Unknown Author");
+                setBookCover(undefined);
+                setBookPublisher(undefined);
                 setText(contents);
             }
 
@@ -118,10 +132,7 @@ export default function ImportModal({
             publisher: bookPublisher,
         });
 
-        setText("");
-        setBookTitle("");
-        setBookAuthor("");
-        setImportedChapters([]);
+        resetImport();
 
         onClose();
     }
@@ -150,7 +161,7 @@ export default function ImportModal({
                     </TouchableOpacity>
 
                     <View style={styles.row}>
-                        <TouchableOpacity style={styles.cancel} onPress={onClose}>
+                        <TouchableOpacity style={styles.cancel} onPress={() => { resetImport(); onClose(); }}>
                             <Text>Cancel</Text>
                         </TouchableOpacity>
 

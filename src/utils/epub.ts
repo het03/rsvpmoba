@@ -23,20 +23,42 @@ export async function extractEPUB(
 ): Promise<EPUBBook> {
     const zip = await JSZip.loadAsync(arrayBuffer);
 
+    function normalizePath(path: string): string {
+        const parts: string[] = [];
+        for (const part of decodeURIComponent(path).split('/')) {
+            if (!part || part === '.') continue;
+            if (part === '..') parts.pop();
+            else parts.push(part);
+        }
+        return parts.join('/');
+    }
+
+    function resolvePath(base: string, href: string): string {
+        return normalizePath(`${base}${href.split(/[?#]/, 1)[0]}`);
+    }
+
+    function getFile(path: string, label: string) {
+        const file = zip.file(normalizePath(path));
+        if (!file) throw new Error(`Invalid EPUB: missing ${label}`);
+        return file;
+    }
+
     const parser = new XMLParser({
         ignoreAttributes: false,
     });
 
-    const container = await zip
-        .file("META-INF/container.xml")!
-        .async("text");
+    const container = await getFile("META-INF/container.xml", "container.xml").async("text");
 
     const containerXML = parser.parse(container);
 
-    const opfPath =
-        containerXML.container.rootfiles.rootfile["@_full-path"];
+    const rootfiles = containerXML?.container?.rootfiles?.rootfile;
+    const rootfile = Array.isArray(rootfiles) ? rootfiles[0] : rootfiles;
+    const opfPath = rootfile?.['@_full-path'];
+    if (typeof opfPath !== 'string' || !opfPath) {
+        throw new Error('Invalid EPUB: no package document found');
+    }
 
-    const opf = await zip.file(opfPath)!.async("text");
+    const opf = await getFile(opfPath, 'package document').async('text');
 
     const opfXML = parser.parse(opf);
 
@@ -56,16 +78,12 @@ export async function extractEPUB(
 
 
 
-    const manifestItems = opfXML.package.manifest.item;
-    const spineItems = opfXML.package.spine.itemref;
+    const manifestItems = opfXML?.package?.manifest?.item;
+    const spineItems = opfXML?.package?.spine?.itemref;
 
-    const manifest = Array.isArray(manifestItems)
-        ? manifestItems
-        : [manifestItems];
+    const manifest = (Array.isArray(manifestItems) ? manifestItems : [manifestItems]).filter(Boolean);
 
-    const spine = Array.isArray(spineItems)
-        ? spineItems
-        : [spineItems];
+    const spine = (Array.isArray(spineItems) ? spineItems : [spineItems]).filter(Boolean);
 
     const basePath =
         opfPath.substring(0, opfPath.lastIndexOf("/") + 1);
@@ -80,7 +98,7 @@ export async function extractEPUB(
                 const cid = m['@_content'] ?? m['@_value'] ?? m['#text'];
                 if (cid) {
                     const found = manifest.find((it: any) => it['@_id'] === cid || it['@_id'] === (cid['@_id'] ?? cid));
-                    if (found) coverHref = basePath + (found['@_href'] || found['@_href']);
+                    if (found) coverHref = resolvePath(basePath, found['@_href'] || found.href || '');
                 }
             }
         }
@@ -97,15 +115,17 @@ export async function extractEPUB(
                 /\.(jpe?g|png|gif)$/i.test(href)
             );
         });
-        if (found) coverHref = basePath + (found['@_href'] || found['href'] || found['@_href']);
+        if (found) coverHref = resolvePath(basePath, found['@_href'] || found.href || '');
     }
 
     let coverDataUri: string | undefined;
     if (coverHref) {
         try {
-            const buf = await zip.file(coverHref)!.async('base64');
-            const ext = coverHref.split('.').pop()?.toLowerCase() ?? 'jpg';
-            const mime = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
+            const coverFile = zip.file(coverHref);
+            if (!coverFile) throw new Error('Cover file not found');
+            const buf = await coverFile.async('base64');
+            const coverManifestItem = manifest.find((item: any) => resolvePath(basePath, item['@_href'] || item.href || '') === coverHref);
+            const mime = coverManifestItem?.['@_media-type'] || coverManifestItem?.['media-type'] || 'image/jpeg';
             coverDataUri = `data:${mime};base64,${buf}`;
         } catch (e) {
             coverDataUri = undefined;
@@ -123,16 +143,20 @@ export async function extractEPUB(
 
         if (!file) continue;
 
-        const href = basePath + file["@_href"];
+        const hrefValue = file['@_href'] || file.href;
+        if (typeof hrefValue !== 'string' || !hrefValue) continue;
+        const href = resolvePath(basePath, hrefValue);
 
-        const html = await zip.file(href)!.async("text");
+        const chapterFile = zip.file(href);
+        if (!chapterFile) continue;
+        const html = await chapterFile.async('text');
 
         // try to extract <title> from html for chapter title
         const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-        const chapterTitle = titleMatch ? titleMatch[1].trim() : file["@_href"]
+        const chapterTitle = titleMatch ? titleMatch[1].trim() : hrefValue
             .split("/")
             .pop()
-            .replace(/\.(xhtml|html)$/i, "");
+            ?.replace(/\.(xhtml|html)$/i, "") || `Chapter ${chapters.length + 1}`;
 
         const cleanText = html
             .replace(/<script[\s\S]*?<\/script>/gi, "")
