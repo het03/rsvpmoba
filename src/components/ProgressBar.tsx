@@ -1,21 +1,19 @@
 import { StyleSheet, View, ViewStyle } from "react-native";
 
-import { Colors } from "@/constants/theme";
-const theme = {
-    primary: Colors.light.primary,
-};
+import { useTheme } from '@/hooks/use-theme';
 
 interface ProgressBarProps {
     progress: number;
 }
 export default function ProgressBar({ progress }: ProgressBarProps) {
+    const theme = useTheme();
     const fillStyle: ViewStyle = {
         width: `${Math.min(100, Math.max(0, progress * 100))}%`,
     };
 
     return (
         <View style={styles.track}>
-            <View style={[styles.fill, fillStyle]} />
+            <View style={[styles.fill, fillStyle, { backgroundColor: theme.primary }]} />
         </View>
     );
 }
@@ -32,7 +30,7 @@ const styles = StyleSheet.create({
 
     fill: {
         height: "100%",
-        backgroundColor: theme.primary,
+        backgroundColor: '#4F8EF7',
         borderRadius: 5,
     },
 });

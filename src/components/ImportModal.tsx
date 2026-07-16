@@ -10,6 +10,7 @@ import {
     View,
 } from "react-native";
 import { extractEPUB } from "../utils/epub";
+import { useTheme } from '@/hooks/use-theme';
 
 interface Chapter {
     title: string;
@@ -33,6 +34,7 @@ export default function ImportModal({
     onClose,
     onLoad,
 }: ImportModalProps) {
+    const theme = useTheme();
     const [text, setText] = useState<string>("");
     const [loading, setLoading] = useState<boolean>(false);
     const [bookTitle, setBookTitle] = useState<string>("");
@@ -145,24 +147,24 @@ export default function ImportModal({
             onRequestClose={onClose}
         >
             <View style={styles.overlay}>
-                <View style={styles.card}>
-                    <Text style={styles.title}>Import Book</Text>
+                <View style={[styles.card, { backgroundColor: theme.card }]}>
+                    <Text style={[styles.title, { color: theme.text }]}>Import Book</Text>
 
                     <TextInput
-                        style={styles.input}
+                        style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
                         multiline
                         value={text}
                         editable={false}
                         placeholder="Book preview..."
                     />
 
-                    <TouchableOpacity style={styles.fileButton} onPress={chooseFile}>
-                        <Text>{loading ? "Loading..." : "📚 Choose TXT / EPUB"}</Text>
+                    <TouchableOpacity style={[styles.fileButton, { backgroundColor: theme.backgroundElement }]} onPress={chooseFile}>
+                        <Text style={{ color: theme.text }}>{loading ? "Loading..." : "📚 Choose TXT / EPUB"}</Text>
                     </TouchableOpacity>
 
                     <View style={styles.row}>
                         <TouchableOpacity style={styles.cancel} onPress={() => { resetImport(); onClose(); }}>
-                            <Text>Cancel</Text>
+                            <Text style={{ color: theme.text }}>Cancel</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity style={styles.start} onPress={startReading}>

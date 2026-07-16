@@ -1,4 +1,3 @@
-import { Colors } from "@/constants/theme";
 import { Image } from 'expo-image';
 import {
     StyleSheet,
@@ -6,11 +5,7 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-const theme = {
-    text: Colors.light.text,
-    subtext: Colors.light.textSecondary,
-    card: Colors.light.card
-};
+import { useTheme } from '@/hooks/use-theme';
 
 import type { Book } from '../types';
 
@@ -25,10 +20,11 @@ export default function Library({
     onOpen,
     onDelete,
 }: LibraryProps) {
+    const theme = useTheme();
     return (
         <View style={styles.container}>
             {books.length === 0 ? (
-                <Text style={styles.empty}>No books imported yet.</Text>
+                <Text style={[styles.empty, { color: theme.textSecondary }]}>No books imported yet.</Text>
             ) : (
                 books.map((book) => {
                     const totalWords = book.chapters.reduce(
@@ -52,7 +48,7 @@ export default function Library({
                     return (
                         <View key={book.id} style={styles.bookRow}>
                             <TouchableOpacity
-                                style={styles.book}
+                                style={[styles.book, { backgroundColor: theme.card }]}
                                 onPress={() => onOpen(book)}
                             >
                                 <View style={styles.bookHeader}>
@@ -61,23 +57,23 @@ export default function Library({
                                     ) : null}
 
                                     <View style={styles.bookMeta}>
-                                        <Text style={styles.bookTitle}>{book.title}</Text>
+                                        <Text style={[styles.bookTitle, { color: theme.text }]}>{book.title}</Text>
                                         {book.author ? (
-                                            <Text style={styles.author}>{book.author}</Text>
+                                            <Text style={[styles.author, { color: theme.textSecondary }]}>{book.author}</Text>
                                         ) : null}
 
                                         {book.publisher ? (
-                                            <Text style={styles.publisher}>{book.publisher}</Text>
+                                            <Text style={[styles.publisher, { color: theme.textSecondary }]}>{book.publisher}</Text>
                                         ) : null}
                                     </View>
                                 </View>
 
-                                <Text style={styles.info}>
+                                <Text style={[styles.info, { color: theme.textSecondary }]}>
                                     {progress}% complete
                                 </Text>
 
                                 {book.lastOpened ? (
-                                    <Text style={styles.lastOpened}>Last opened: {new Date(book.lastOpened).toLocaleString()}</Text>
+                                    <Text style={[styles.lastOpened, { color: theme.textSecondary }]}>Last opened: {new Date(book.lastOpened).toLocaleString()}</Text>
                                 ) : null}
                             </TouchableOpacity>
 
@@ -112,7 +108,7 @@ const styles = StyleSheet.create({
 
     book: {
         flex: 1,
-        backgroundColor: theme.card,
+        backgroundColor: '#F3F4F6',
         padding: 15,
         borderRadius: 12,
     },
@@ -137,30 +133,30 @@ const styles = StyleSheet.create({
     bookTitle: {
         fontSize: 18,
         fontWeight: "600",
-        color: theme.text,
+        color: '#111827',
     },
 
     author: {
         marginTop: 4,
-        color: theme.subtext,
+        color: '#6B7280',
         fontSize: 14,
     },
 
     publisher: {
         marginTop: 4,
-        color: theme.subtext,
+        color: '#6B7280',
         fontSize: 12,
     },
 
     lastOpened: {
         marginTop: 6,
-        color: theme.subtext,
+        color: '#6B7280',
         fontSize: 12,
     },
 
     info: {
         marginTop: 5,
-        color: theme.subtext,
+        color: '#6B7280',
     },
 
     delete: {
@@ -193,6 +189,6 @@ const styles = StyleSheet.create({
     },
 
     empty: {
-        color: theme.subtext,
+        color: '#6B7280',
     },
 });

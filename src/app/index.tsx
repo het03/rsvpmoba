@@ -6,19 +6,12 @@ import ImportModal from '../components/ImportModal';
 import Library from '../components/Library';
 import useLibrary from '../hooks/useLibrary';
 import type { Chapter } from '../types';
-
-import { Colors } from "@/constants/theme";
-const theme = {
-  text: Colors.light.text,
-  primary: Colors.light.primary,
-  subtext: Colors.light.textSecondary,
-  background: Colors.light.background,
-};
-
+import { useTheme } from '@/hooks/use-theme';
 
 export default function Index() {
   const { books, addBook, removeBook } = useLibrary();
   const router = useRouter();
+  const theme = useTheme();
 
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -52,12 +45,12 @@ export default function Index() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
-        <Text style={styles.title}>My Library</Text>
+        <Text style={[styles.title, { color: theme.text }]}>My Library</Text>
 
         <TouchableOpacity
-          style={styles.importBtn}
+          style={[styles.importBtn, { backgroundColor: theme.primary }]}
           onPress={() => setModalVisible(true)}
         >
           <Text style={styles.importText}>Import</Text>
@@ -91,7 +84,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     marginTop: 40,
-    backgroundColor: theme.background,
+    backgroundColor: '#FAFAF9',
   },
   header: {
     flexDirection: 'row',
@@ -102,10 +95,10 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: '700',
-    color: theme.text,
+    color: '#111827',
   },
   importBtn: {
-    backgroundColor: theme.primary,
+    backgroundColor: '#4F8EF7',
     paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: 10,
