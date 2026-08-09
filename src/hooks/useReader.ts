@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Book, Chapter } from '../types';
 import { getPauseMultiplier } from '../utils/orp';
 import { parseText } from '../utils/parser';
@@ -28,8 +28,8 @@ export default function useReader() {
         if (!playing) return;
 
         if (words.length === 0 || index >= words.length) {
-            setPlaying(false);
-            return;
+            timer.current = setTimeout(() => setPlaying(false), 0);
+            return clearTimer;
         }
 
         const currentWord = words[index];
@@ -59,7 +59,7 @@ export default function useReader() {
         return clearTimer;
     }, [playing, index, wpm, words, chapterIndex, chapters]);
 
-    function loadBook(book: Book) {
+    const loadBook = useCallback((book: Book) => {
         const bookChapters = book.chapters || [];
         const savedChapter = book.currentChapter || 0;
 
@@ -76,7 +76,7 @@ export default function useReader() {
         if (book.wpm) setWpm(book.wpm);
         if (book.fontSize) setFontSize(book.fontSize);
         if (book.theme) setTheme(book.theme);
-    }
+    }, []);
 
     function playPause() {
         if (words.length === 0) return;

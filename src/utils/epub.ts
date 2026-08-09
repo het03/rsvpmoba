@@ -127,7 +127,7 @@ export async function extractEPUB(
             const coverManifestItem = manifest.find((item: any) => resolvePath(basePath, item['@_href'] || item.href || '') === coverHref);
             const mime = coverManifestItem?.['@_media-type'] || coverManifestItem?.['media-type'] || 'image/jpeg';
             coverDataUri = `data:${mime};base64,${buf}`;
-        } catch (e) {
+        } catch {
             coverDataUri = undefined;
         }
     }

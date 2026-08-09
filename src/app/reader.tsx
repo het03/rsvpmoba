@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Animated,
     AppState,
@@ -27,13 +27,18 @@ import useLibrary from '../hooks/useLibrary';
 import useReader from '../hooks/useReader';
 
 const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
+const themeOrder = ['light', 'dark', 'sepia'] as const;
+type ReaderThemeType = (typeof themeOrder)[number];
 
 export default function ReaderScreen() {
     const { id } = useLocalSearchParams<{ id?: string }>();
 
     const { books, hydrated, updateProgress } = useLibrary();
     const foundBook = books.find((candidate) => candidate.id === id);
-    const book = foundBook ?? { id: '', title: '', chapters: [], currentChapter: 0, position: 0, createdAt: 0 };
+    const book = useMemo(
+        () => foundBook ?? { id: '', title: '', chapters: [], currentChapter: 0, position: 0, createdAt: 0 },
+        [foundBook],
+    );
 
     const loaded = useRef(false);
 
@@ -43,7 +48,6 @@ export default function ReaderScreen() {
         index,
         chapterIndex,
         chapters,
-        progress,
         bookProgress,
         absolutePosition,
         playing,
@@ -66,17 +70,19 @@ export default function ReaderScreen() {
         bookId: '', currentChapter: 0, absolutePosition: 0, position: 0,
         wpm: 300, fontSize: 52, theme: 'light' as 'light' | 'dark' | 'sepia',
     });
-    latestProgress.current = {
-        bookId: book.id,
-        currentChapter: chapterIndex,
-        absolutePosition,
-        position: index,
-        wpm,
-        fontSize,
-        theme: readerTheme,
-    };
-    const saveLatestProgress = useRef(async () => {});
-    saveLatestProgress.current = async () => {
+    useEffect(() => {
+        latestProgress.current = {
+            bookId: book.id,
+            currentChapter: chapterIndex,
+            absolutePosition,
+            position: index,
+            wpm,
+            fontSize,
+            theme: readerTheme,
+        };
+    }, [absolutePosition, book.id, chapterIndex, fontSize, index, readerTheme, wpm]);
+
+    const saveLatestProgress = useCallback(async () => {
         if (!loaded.current || !latestProgress.current.bookId) return;
         const current = latestProgress.current;
         await updateProgress(current.bookId, {
@@ -88,21 +94,19 @@ export default function ReaderScreen() {
             theme: current.theme,
             lastOpened: Date.now(),
         });
-    };
+    }, [updateProgress]);
 
-    const colors = (Colors as any)[readerTheme] ?? Colors.light;
+    const colors = useMemo(() => (Colors as any)[readerTheme] ?? Colors.light, [readerTheme]);
     const { setTheme: setAppTheme } = useAppTheme();
     const prevColorsRef = useRef(colors);
     const [prevColors, setPrevColors] = useState(colors);
-    const anim = useRef(new Animated.Value(0)).current;
-    type ReaderThemeType = 'light' | 'dark' | 'sepia';
-    const themeOrder: ReaderThemeType[] = ['light', 'dark', 'sepia'];
-    const indicatorX = useRef(new Animated.Value(0)).current;
-    const toggleScale = useRef<Record<ReaderThemeType, Animated.Value>>({
+    const [anim] = useState(() => new Animated.Value(0));
+    const [indicatorX] = useState(() => new Animated.Value(0));
+    const [toggleScale] = useState<Record<ReaderThemeType, Animated.Value>>(() => ({
         light: new Animated.Value(1),
         dark: new Animated.Value(1),
         sepia: new Animated.Value(1),
-    }).current;
+    }));
 
     const animateToggle = (themeName: ReaderThemeType) => {
         Animated.sequence([
@@ -126,7 +130,7 @@ export default function ReaderScreen() {
             duration: 220,
             useNativeDriver: true,
         }).start();
-    }, [readerTheme]);
+    }, [indicatorX, readerTheme]);
 
     useEffect(() => {
         loaded.current = false;
@@ -138,7 +142,7 @@ export default function ReaderScreen() {
 
         const timeout = setTimeout(() => { loaded.current = true; }, 300);
         return () => clearTimeout(timeout);
-    }, [book.id]);
+    }, [book, loadBook, setAppTheme]);
 
     // Animate theme background/card when colors change
     useEffect(() => {
@@ -151,7 +155,7 @@ export default function ReaderScreen() {
             setPrevColors(colors);
             anim.setValue(0);
         });
-    }, [colors.background, colors.card]);
+    }, [anim, colors]);
 
     useEffect(() => {
         if (!loaded.current || words.length === 0) return;
@@ -161,7 +165,7 @@ export default function ReaderScreen() {
             absolutePosition,
             position: index,
         });
-    }, [index, chapterIndex, words.length, absolutePosition]);
+    }, [absolutePosition, book.id, chapterIndex, index, updateProgress, words.length]);
 
     // Auto-save when pausing
     useEffect(() => {
@@ -178,44 +182,44 @@ export default function ReaderScreen() {
                 lastOpened: Date.now(),
             });
         }
-    }, [playing, absolutePosition]);
+    }, [absolutePosition, book.id, chapterIndex, fontSize, index, playing, readerTheme, updateProgress, wpm]);
 
     // Save once on unmount / leaving reader. The ref prevents stale state and repeated cleanup saves.
     useEffect(() => {
         return () => {
-            void saveLatestProgress.current();
+            void saveLatestProgress();
         };
-    }, []);
+    }, [saveLatestProgress]);
 
     // AppState listener to save when app goes to background
     useEffect(() => {
         function handleChange(state: AppStateStatus) {
             if (state !== 'active') {
-                void saveLatestProgress.current();
+                void saveLatestProgress();
             }
         }
 
         const sub = AppState.addEventListener('change', handleChange);
 
         return () => sub.remove();
-    }, []);
+    }, [saveLatestProgress]);
 
     // Auto-save every 30 seconds
     useEffect(() => {
         const id = setInterval(() => {
-            void saveLatestProgress.current();
+            void saveLatestProgress();
         }, 30000);
 
         return () => clearInterval(id);
-    }, []);
+    }, [saveLatestProgress]);
 
     const bgOpacityNext = anim;
     const bgOpacityPrev = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
 
     const SCREEN_HEIGHT = Dimensions.get('window').height;
     const [tocVisible, setTocVisible] = useState(false);
-    const fadeAnim = useRef(new Animated.Value(0)).current;
-    const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+    const [fadeAnim] = useState(() => new Animated.Value(0));
+    const [slideAnim] = useState(() => new Animated.Value(SCREEN_HEIGHT));
 
     useEffect(() => {
         if (tocVisible) {
@@ -233,7 +237,7 @@ export default function ReaderScreen() {
                 }),
             ]).start();
         }
-    }, [tocVisible]);
+    }, [fadeAnim, slideAnim, tocVisible]);
 
     const handleClose = () => {
         // Trigger exit animations in parallel, then hide the modal

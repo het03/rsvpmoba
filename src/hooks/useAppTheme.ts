@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 const KEY = 'APP_THEME';
 const listeners = new Set<(theme: AppTheme) => void>();
@@ -26,12 +26,12 @@ export default function useAppTheme() {
         };
     }, []);
 
-    function saveTheme(next: AppTheme) {
+    const saveTheme = useCallback((next: AppTheme) => {
         setTheme(next);
         listeners.forEach((listener) => listener(next));
         if (!next) return AsyncStorage.removeItem(KEY);
         return AsyncStorage.setItem(KEY, next);
-    }
+    }, []);
 
     return { theme, setTheme: saveTheme };
 }
