@@ -1,11 +1,7 @@
-import { Colors } from "@/constants/theme";
 import { StyleSheet, Text, View } from "react-native";
 import { getORPIndex } from "../utils/orp";
 
-const theme = {
-    text: Colors.light.text,
-    subtext: Colors.light.textSecondary,
-};
+const textColorDefault = '#111827';
 
 interface WordDisplayProps {
     word: string;
@@ -35,9 +31,9 @@ export default function WordDisplay({ word, fontSize = 52, textColor, subtextCol
     return (
         <View style={styles.container}>
             <View style={styles.innerRow}>
-                <Text numberOfLines={1} style={[styles.word, { fontSize: effectiveFont, color: textColor ?? theme.text }]}>{before}</Text>
+                <Text numberOfLines={1} style={[styles.word, { fontSize: effectiveFont, color: textColor ?? textColorDefault }]}>{before}</Text>
                 <Text numberOfLines={1} style={[styles.word, styles.highlight, { fontSize: effectiveFont, color: '#EF4444' }]}>{letter}</Text>
-                <Text numberOfLines={1} style={[styles.word, { fontSize: effectiveFont, color: textColor ?? theme.text }]}>{after}</Text>
+                <Text numberOfLines={1} style={[styles.word, { fontSize: effectiveFont, color: textColor ?? textColorDefault }]}>{after}</Text>
             </View>
         </View>
     );

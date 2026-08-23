@@ -16,7 +16,6 @@ export interface Book {
     // Persistent reading state
     wpm?: number;
     fontSize?: number;
-    theme?: 'light' | 'dark' | 'sepia';
     lastOpened?: number;
     cover?: string;
     publisher?: string;

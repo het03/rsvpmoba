@@ -1,194 +1,34 @@
 import { Image } from 'expo-image';
-import {
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-} from "react-native";
-import { useTheme } from '@/hooks/use-theme';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import type { Book } from '../types';
 
-interface LibraryProps {
-    books: Book[];
-    onOpen: (book: Book) => void;
-    onDelete: (id: string) => void;
+interface LibraryProps { books: Book[]; onOpen: (book: Book) => void; onDelete: (id: string) => void; }
+
+function wordCount(book: Book) {
+    return (Array.isArray(book.chapters) ? book.chapters : []).reduce((total, chapter) => total + (chapter.text || '').trim().split(/\s+/).filter(Boolean).length, 0);
 }
 
-export default function Library({
-    books,
-    onOpen,
-    onDelete,
-}: LibraryProps) {
-    const theme = useTheme();
-    return (
-        <View style={styles.container}>
-            {books.length === 0 ? (
-                <Text style={[styles.empty, { color: theme.textSecondary }]}>No books imported yet.</Text>
-            ) : (
-                books.map((book) => {
-                    const totalWords = book.chapters.reduce(
-                        (count, chapter) =>
-                            count +
-                            chapter.text
-                                .trim()
-                                .split(/\s+/)
-                                .filter(Boolean).length,
-                        0
-                    );
+export default function Library({ books, onOpen, onDelete }: LibraryProps) {
+    if (books.length === 0) return <View style={styles.empty}><Text style={styles.emptyTitle}>Your shelf is empty</Text><Text style={styles.emptyText}>Import a TXT or EPUB file to start reading.</Text></View>;
 
-                    const completedBeforeChapter = book.chapters
-                        .slice(0, book.currentChapter)
-                        .reduce((count, chapter) => count + chapter.text.trim().split(/\s+/).filter(Boolean).length, 0);
-                    const absolutePosition = book.absolutePosition ?? completedBeforeChapter + book.position;
-                    const progress = totalWords > 0
-                        ? Math.round((Math.min(totalWords, absolutePosition + 1) / totalWords) * 100)
-                        : 0;
-
-                    return (
-                        <View key={book.id} style={styles.bookRow}>
-                            <TouchableOpacity
-                                style={[styles.book, { backgroundColor: theme.card }]}
-                                onPress={() => onOpen(book)}
-                            >
-                                <View style={styles.bookHeader}>
-                                    {book.cover ? (
-                                        <Image source={book.cover} style={styles.cover} />
-                                    ) : null}
-
-                                    <View style={styles.bookMeta}>
-                                        <Text style={[styles.bookTitle, { color: theme.text }]}>{book.title}</Text>
-                                        {book.author ? (
-                                            <Text style={[styles.author, { color: theme.textSecondary }]}>{book.author}</Text>
-                                        ) : null}
-
-                                        {book.publisher ? (
-                                            <Text style={[styles.publisher, { color: theme.textSecondary }]}>{book.publisher}</Text>
-                                        ) : null}
-                                    </View>
-                                </View>
-
-                                <Text style={[styles.info, { color: theme.textSecondary }]}>
-                                    {progress}% complete
-                                </Text>
-
-                                {book.lastOpened ? (
-                                    <Text style={[styles.lastOpened, { color: theme.textSecondary }]}>Last opened: {new Date(book.lastOpened).toLocaleString()}</Text>
-                                ) : null}
-                            </TouchableOpacity>
-
-                            <TouchableOpacity style={styles.resume} onPress={() => onOpen(book)}>
-                                <Text style={styles.resumeText}>Resume</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                                style={styles.delete}
-                                onPress={() => onDelete(book.id)}
-                            >
-                                <Text style={styles.deleteText}>🗑</Text>
-                            </TouchableOpacity>
-                        </View>
-                    );
-                })
-            )}
-        </View>
-    );
+    return <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.list}>
+        {books.map((book) => {
+            const total = wordCount(book);
+            const completed = book.absolutePosition ?? 0;
+            const progress = total ? Math.min(100, Math.round(((completed + 1) / total) * 100)) : 0;
+            return <View key={book.id} style={styles.row}>
+                <TouchableOpacity style={styles.openArea} onPress={() => onOpen(book)}>
+                    {book.cover ? <Image source={book.cover} style={styles.cover} /> : <View style={[styles.cover, styles.coverFallback]}><Text style={styles.coverLetter}>{book.title.charAt(0).toUpperCase()}</Text></View>}
+                    <View style={styles.details}><Text numberOfLines={2} style={styles.bookTitle}>{book.title}</Text>{book.author ? <Text numberOfLines={1} style={styles.author}>{book.author}</Text> : null}<Text style={styles.progress}>{progress}% complete</Text></View>
+                </TouchableOpacity>
+                <View style={styles.actions}><TouchableOpacity onPress={() => onOpen(book)} style={styles.resume}><Text style={styles.resumeText}>Read</Text></TouchableOpacity><TouchableOpacity accessibilityLabel={`Delete ${book.title}`} onPress={() => onDelete(book.id)} style={styles.delete}><Text style={styles.deleteText}>×</Text></TouchableOpacity></View>
+            </View>;
+        })}
+    </ScrollView>;
 }
 
 const styles = StyleSheet.create({
-    container: {
-        marginBottom: 20,
-    },
-
-    bookRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 10,
-    },
-
-    book: {
-        flex: 1,
-        backgroundColor: '#F3F4F6',
-        padding: 15,
-        borderRadius: 12,
-    },
-
-    bookHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-
-    cover: {
-        width: 48,
-        height: 64,
-        borderRadius: 6,
-        marginRight: 12,
-        backgroundColor: '#eee',
-    },
-
-    bookMeta: {
-        flex: 1,
-    },
-
-    bookTitle: {
-        fontSize: 18,
-        fontWeight: "600",
-        color: '#111827',
-    },
-
-    author: {
-        marginTop: 4,
-        color: '#6B7280',
-        fontSize: 14,
-    },
-
-    publisher: {
-        marginTop: 4,
-        color: '#6B7280',
-        fontSize: 12,
-    },
-
-    lastOpened: {
-        marginTop: 6,
-        color: '#6B7280',
-        fontSize: 12,
-    },
-
-    info: {
-        marginTop: 5,
-        color: '#6B7280',
-    },
-
-    delete: {
-        marginLeft: 10,
-        width: 45,
-        height: 45,
-        borderRadius: 22,
-        backgroundColor: "#FEE2E2",
-        justifyContent: "center",
-        alignItems: "center",
-    },
-
-    resume: {
-        marginLeft: 10,
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderRadius: 8,
-        backgroundColor: '#E6F0FF',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-
-    resumeText: {
-        color: '#0B61FF',
-        fontWeight: '600',
-    },
-
-    deleteText: {
-        fontSize: 20,
-    },
-
-    empty: {
-        color: '#6B7280',
-    },
+    list: { gap: 12, paddingBottom: 20 }, empty: { backgroundColor: '#FFFFFF', borderColor: '#E2E8F0', borderWidth: 1, borderRadius: 18, padding: 24, alignItems: 'center' }, emptyTitle: { color: '#111827', fontSize: 18, fontWeight: '700' }, emptyText: { color: '#64748B', marginTop: 6, fontSize: 14, textAlign: 'center' },
+    row: { backgroundColor: '#FFFFFF', borderColor: '#E2E8F0', borderWidth: 1, borderRadius: 18, padding: 12, flexDirection: 'row', alignItems: 'center' }, openArea: { flex: 1, flexDirection: 'row', minWidth: 0 }, cover: { width: 48, height: 64, borderRadius: 10, marginRight: 12, backgroundColor: '#EEF2FF' }, coverFallback: { alignItems: 'center', justifyContent: 'center' }, coverLetter: { color: '#4F46E5', fontSize: 24, fontWeight: '800' }, details: { flex: 1, justifyContent: 'center' }, bookTitle: { color: '#111827', fontSize: 16, fontWeight: '700' }, author: { color: '#64748B', fontSize: 13, marginTop: 3 }, progress: { color: '#64748B', fontSize: 12, marginTop: 8 }, actions: { alignItems: 'center', marginLeft: 8, gap: 4 }, resume: { backgroundColor: '#4F46E5', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 }, resumeText: { color: '#fff', fontSize: 12, fontWeight: '800' }, delete: { width: 34, height: 28, alignItems: 'center', justifyContent: 'center' }, deleteText: { color: '#64748B', fontSize: 24, lineHeight: 24 },
 });

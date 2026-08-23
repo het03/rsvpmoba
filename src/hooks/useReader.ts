@@ -11,7 +11,6 @@ export default function useReader() {
     const [playing, setPlaying] = useState(false);
     const [wpm, setWpm] = useState(300);
     const [fontSize, setFontSize] = useState<number>(52);
-    const [theme, setTheme] = useState<'light' | 'dark' | 'sepia'>('light');
 
     const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -75,7 +74,6 @@ export default function useReader() {
         // Load persisted settings if present
         if (book.wpm) setWpm(book.wpm);
         if (book.fontSize) setFontSize(book.fontSize);
-        if (book.theme) setTheme(book.theme);
     }, []);
 
     function playPause() {
@@ -152,7 +150,6 @@ export default function useReader() {
         wpm,
         eta,
         fontSize,
-        theme,
         loadBook,
         goToChapter,
         playPause,
@@ -161,6 +158,5 @@ export default function useReader() {
         increaseSpeed,
         decreaseSpeed,
         setFontSize,
-        setTheme,
     };
 }

@@ -10,7 +10,6 @@ import {
     View,
 } from "react-native";
 import { extractEPUB } from "../utils/epub";
-import { useTheme } from '@/hooks/use-theme';
 
 interface Chapter {
     title: string;
@@ -34,7 +33,6 @@ export default function ImportModal({
     onClose,
     onLoad,
 }: ImportModalProps) {
-    const theme = useTheme();
     const [text, setText] = useState<string>("");
     const [loading, setLoading] = useState<boolean>(false);
     const [bookTitle, setBookTitle] = useState<string>("");
@@ -147,24 +145,24 @@ export default function ImportModal({
             onRequestClose={onClose}
         >
             <View style={styles.overlay}>
-                <View style={[styles.card, { backgroundColor: theme.card }]}>
-                    <Text style={[styles.title, { color: theme.text }]}>Import Book</Text>
+                <View style={styles.card}>
+                    <Text style={styles.title}>Import Book</Text>
 
                     <TextInput
-                        style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.background }]}
+                        style={styles.input}
                         multiline
                         value={text}
                         editable={false}
                         placeholder="Book preview..."
                     />
 
-                    <TouchableOpacity style={[styles.fileButton, { backgroundColor: theme.backgroundElement }]} onPress={chooseFile}>
-                        <Text style={{ color: theme.text }}>{loading ? "Loading..." : "📚 Choose TXT / EPUB"}</Text>
+                    <TouchableOpacity style={styles.fileButton} onPress={chooseFile}>
+                        <Text style={styles.fileButtonText}>{loading ? "Loading..." : "📚 Choose TXT / EPUB"}</Text>
                     </TouchableOpacity>
 
                     <View style={styles.row}>
                         <TouchableOpacity style={styles.cancel} onPress={() => { resetImport(); onClose(); }}>
-                            <Text style={{ color: theme.text }}>Cancel</Text>
+                            <Text style={styles.cancelText}>Cancel</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity style={styles.start} onPress={startReading}>
@@ -192,15 +190,18 @@ const styles = StyleSheet.create({
     },
 
     title: {
+        color: '#111827',
         fontSize: 24,
         fontWeight: "700",
         marginBottom: 15,
     },
 
     input: {
+        color: '#111827',
+        backgroundColor: '#F8FAFC',
         height: 200,
         borderWidth: 1,
-        borderColor: "#ddd",
+        borderColor: "#E2E8F0",
         borderRadius: 12,
         padding: 12,
         textAlignVertical: "top",
@@ -208,10 +209,15 @@ const styles = StyleSheet.create({
 
     fileButton: {
         marginTop: 15,
-        backgroundColor: "#eee",
+        backgroundColor: "#EEF2FF",
         padding: 14,
         borderRadius: 12,
         alignItems: "center",
+    },
+
+    fileButtonText: {
+        color: '#312E81',
+        fontWeight: '700',
     },
 
     row: {
@@ -225,8 +231,12 @@ const styles = StyleSheet.create({
         marginRight: 10,
     },
 
+    cancelText: {
+        color: '#334155',
+    },
+
     start: {
-        backgroundColor: "#4F8EF7",
+        backgroundColor: "#4F46E5",
         paddingHorizontal: 18,
         paddingVertical: 12,
         borderRadius: 10,

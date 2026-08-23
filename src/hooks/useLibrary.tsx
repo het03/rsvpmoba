@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { Book } from '../types';
+import type { Book, Chapter } from '../types';
 import { loadLibrary, saveLibrary } from '../utils/storage';
 
 interface Progress {
@@ -8,7 +8,6 @@ interface Progress {
     position?: number;
     wpm?: number;
     fontSize?: number;
-    theme?: 'light' | 'dark' | 'sepia';
     lastOpened?: number;
 }
 
@@ -23,11 +22,33 @@ interface LibraryContextValue {
 const LibraryContext = createContext<LibraryContextValue | null>(null);
 
 function normalizeBook(value: any): Book {
+    const chapters: Chapter[] = Array.isArray(value?.chapters)
+        ? value.chapters
+            .filter((chapter: unknown): chapter is Record<string, unknown> => Boolean(chapter) && typeof chapter === 'object')
+            .map((chapter: Record<string, unknown>, index: number) => ({
+                title: typeof chapter.title === 'string' ? chapter.title : `Chapter ${index + 1}`,
+                text: typeof chapter.text === 'string' ? chapter.text : '',
+            }))
+        : [];
+
     return {
-        ...value,
+        id: typeof value?.id === 'string' ? value.id : String(value?.id ?? Date.now()),
+        title: typeof value?.title === 'string' && value.title.trim() ? value.title : 'Unknown Title',
         author: value?.author && typeof value.author === 'object'
             ? value.author['#text'] ?? value.author['#value'] ?? String(value.author)
             : value?.author,
+        cover: typeof value?.cover === 'string' ? value.cover : undefined,
+        publisher: typeof value?.publisher === 'string' ? value.publisher : undefined,
+        chapters,
+        currentChapter: Number.isInteger(value?.currentChapter) && value.currentChapter >= 0
+            ? Math.min(value.currentChapter, Math.max(0, chapters.length - 1))
+            : 0,
+        absolutePosition: typeof value?.absolutePosition === 'number' && value.absolutePosition >= 0 ? value.absolutePosition : undefined,
+        position: typeof value?.position === 'number' && value.position >= 0 ? value.position : 0,
+        wpm: typeof value?.wpm === 'number' && value.wpm > 0 ? value.wpm : undefined,
+        fontSize: typeof value?.fontSize === 'number' && value.fontSize > 0 ? value.fontSize : undefined,
+        lastOpened: typeof value?.lastOpened === 'number' ? value.lastOpened : undefined,
+        createdAt: typeof value?.createdAt === 'number' ? value.createdAt : Date.now(),
     };
 }
 
@@ -76,7 +97,6 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
                 position: progress.position ?? book.position,
                 wpm: progress.wpm ?? book.wpm,
                 fontSize: progress.fontSize ?? book.fontSize,
-                theme: progress.theme ?? book.theme,
                 lastOpened: progress.lastOpened ?? book.lastOpened,
             }
             : book

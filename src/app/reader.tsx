@@ -1,595 +1,76 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-    Animated,
-    AppState,
-    AppStateStatus,
-    Dimensions,
-    FlatList,
-    Modal,
-    Pressable,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
-} from 'react-native';
+import { AppState, AppStateStatus, FlatList, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { SymbolView } from 'expo-symbols';
 import ProgressBar from '../components/ProgressBar';
 import ReaderGestures from '../components/ReaderGestures';
 import WordDisplay from '../components/WordDisplay';
-
-import { Colors } from "@/constants/theme";
-
-import useAppTheme from '@/hooks/useAppTheme';
 import useLibrary from '../hooks/useLibrary';
 import useReader from '../hooks/useReader';
 
-const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
-const themeOrder = ['light', 'dark', 'sepia'] as const;
-type ReaderThemeType = (typeof themeOrder)[number];
+const colors = { text: '#111827', background: '#F8FAFC', backgroundElement: '#EEF2FF', textSecondary: '#64748B', card: '#FFFFFF', primary: '#4F46E5', border: '#E2E8F0' };
 
 export default function ReaderScreen() {
     const { id } = useLocalSearchParams<{ id?: string }>();
-
     const { books, hydrated, updateProgress } = useLibrary();
     const foundBook = books.find((candidate) => candidate.id === id);
-    const book = useMemo(
-        () => foundBook ?? { id: '', title: '', chapters: [], currentChapter: 0, position: 0, createdAt: 0 },
-        [foundBook],
-    );
-
+    const book = useMemo(() => foundBook ?? { id: '', title: '', chapters: [], currentChapter: 0, position: 0, createdAt: 0 }, [foundBook]);
     const loaded = useRef(false);
-
-    const {
-        word,
-        words,
-        index,
-        chapterIndex,
-        chapters,
-        bookProgress,
-        absolutePosition,
-        playing,
-        wpm,
-        eta,
-        loadBook,
-        playPause,
-        next10,
-        prev10,
-        increaseSpeed,
-        decreaseSpeed,
-        fontSize,
-        theme: readerTheme,
-        setFontSize,
-        setTheme,
-        goToChapter,
-    } = useReader();
-
-    const latestProgress = useRef({
-        bookId: '', currentChapter: 0, absolutePosition: 0, position: 0,
-        wpm: 300, fontSize: 52, theme: 'light' as 'light' | 'dark' | 'sepia',
-    });
-    useEffect(() => {
-        latestProgress.current = {
-            bookId: book.id,
-            currentChapter: chapterIndex,
-            absolutePosition,
-            position: index,
-            wpm,
-            fontSize,
-            theme: readerTheme,
-        };
-    }, [absolutePosition, book.id, chapterIndex, fontSize, index, readerTheme, wpm]);
-
-    const saveLatestProgress = useCallback(async () => {
-        if (!loaded.current || !latestProgress.current.bookId) return;
-        const current = latestProgress.current;
-        await updateProgress(current.bookId, {
-            currentChapter: current.currentChapter,
-            absolutePosition: current.absolutePosition,
-            position: current.position,
-            wpm: current.wpm,
-            fontSize: current.fontSize,
-            theme: current.theme,
-            lastOpened: Date.now(),
-        });
-    }, [updateProgress]);
-
-    const colors = useMemo(() => (Colors as any)[readerTheme] ?? Colors.light, [readerTheme]);
-    const { setTheme: setAppTheme } = useAppTheme();
-    const prevColorsRef = useRef(colors);
-    const [prevColors, setPrevColors] = useState(colors);
-    const [anim] = useState(() => new Animated.Value(0));
-    const [indicatorX] = useState(() => new Animated.Value(0));
-    const [toggleScale] = useState<Record<ReaderThemeType, Animated.Value>>(() => ({
-        light: new Animated.Value(1),
-        dark: new Animated.Value(1),
-        sepia: new Animated.Value(1),
-    }));
-
-    const animateToggle = (themeName: ReaderThemeType) => {
-        Animated.sequence([
-            Animated.timing(toggleScale[themeName], {
-                toValue: 1.15,
-                duration: 120,
-                useNativeDriver: true,
-            }),
-            Animated.timing(toggleScale[themeName], {
-                toValue: 1,
-                duration: 120,
-                useNativeDriver: true,
-            }),
-        ]).start();
-    };
-
-    useEffect(() => {
-        const targetX = themeOrder.indexOf(readerTheme) * 52;
-        Animated.timing(indicatorX, {
-            toValue: targetX,
-            duration: 220,
-            useNativeDriver: true,
-        }).start();
-    }, [indicatorX, readerTheme]);
+    const [chaptersVisible, setChaptersVisible] = useState(false);
+    const { word, words, index, chapterIndex, chapters, bookProgress, absolutePosition, playing, wpm, eta, loadBook, playPause, next10, prev10, increaseSpeed, decreaseSpeed, fontSize, setFontSize, goToChapter } = useReader();
+    const latestProgress = useRef({ bookId: '', currentChapter: 0, absolutePosition: 0, position: 0, wpm: 300, fontSize: 52 });
 
     useEffect(() => {
         loaded.current = false;
-
         loadBook(book);
-
-        // apply book theme globally when opening
-        if (book.theme) setAppTheme(book.theme as any);
-
-        const timeout = setTimeout(() => { loaded.current = true; }, 300);
+        const timeout = setTimeout(() => { loaded.current = true; }, 250);
         return () => clearTimeout(timeout);
-    }, [book, loadBook, setAppTheme]);
+    }, [book, loadBook]);
+    useEffect(() => { latestProgress.current = { bookId: book.id, currentChapter: chapterIndex, absolutePosition, position: index, wpm, fontSize }; }, [absolutePosition, book.id, chapterIndex, fontSize, index, wpm]);
 
-    // Animate theme background/card when colors change
+    const saveProgress = useCallback(async () => {
+        const current = latestProgress.current;
+        if (!loaded.current || !current.bookId) return;
+        await updateProgress(current.bookId, { ...current, lastOpened: Date.now() });
+    }, [updateProgress]);
+    useEffect(() => { if (loaded.current && words.length > 0) void saveProgress(); }, [absolutePosition, chapterIndex, saveProgress, words.length]);
+    useEffect(() => { if (loaded.current && !playing) void saveProgress(); }, [playing, saveProgress]);
     useEffect(() => {
-        if (prevColorsRef.current.background === colors.background && prevColorsRef.current.card === colors.card) return;
+        const subscription = AppState.addEventListener('change', (state: AppStateStatus) => { if (state !== 'active') void saveProgress(); });
+        const interval = setInterval(() => void saveProgress(), 30000);
+        return () => { subscription.remove(); clearInterval(interval); void saveProgress(); };
+    }, [saveProgress]);
 
-        setPrevColors(prevColorsRef.current);
-        anim.setValue(0);
-        Animated.timing(anim, { toValue: 1, duration: 320, useNativeDriver: false }).start(() => {
-            prevColorsRef.current = colors;
-            setPrevColors(colors);
-            anim.setValue(0);
-        });
-    }, [anim, colors]);
-
-    useEffect(() => {
-        if (!loaded.current || words.length === 0) return;
-
-        updateProgress(book.id, {
-            currentChapter: chapterIndex,
-            absolutePosition,
-            position: index,
-        });
-    }, [absolutePosition, book.id, chapterIndex, index, updateProgress, words.length]);
-
-    // Auto-save when pausing
-    useEffect(() => {
-        if (!loaded.current) return;
-
-        if (!playing) {
-            updateProgress(book.id, {
-                currentChapter: chapterIndex,
-                absolutePosition,
-                position: index,
-                wpm,
-                fontSize,
-                theme: readerTheme,
-                lastOpened: Date.now(),
-            });
-        }
-    }, [absolutePosition, book.id, chapterIndex, fontSize, index, playing, readerTheme, updateProgress, wpm]);
-
-    // Save once on unmount / leaving reader. The ref prevents stale state and repeated cleanup saves.
-    useEffect(() => {
-        return () => {
-            void saveLatestProgress();
-        };
-    }, [saveLatestProgress]);
-
-    // AppState listener to save when app goes to background
-    useEffect(() => {
-        function handleChange(state: AppStateStatus) {
-            if (state !== 'active') {
-                void saveLatestProgress();
-            }
-        }
-
-        const sub = AppState.addEventListener('change', handleChange);
-
-        return () => sub.remove();
-    }, [saveLatestProgress]);
-
-    // Auto-save every 30 seconds
-    useEffect(() => {
-        const id = setInterval(() => {
-            void saveLatestProgress();
-        }, 30000);
-
-        return () => clearInterval(id);
-    }, [saveLatestProgress]);
-
-    const bgOpacityNext = anim;
-    const bgOpacityPrev = anim.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
-
-    const SCREEN_HEIGHT = Dimensions.get('window').height;
-    const [tocVisible, setTocVisible] = useState(false);
-    const [fadeAnim] = useState(() => new Animated.Value(0));
-    const [slideAnim] = useState(() => new Animated.Value(SCREEN_HEIGHT));
-
-    useEffect(() => {
-        if (tocVisible) {
-            // Trigger entry animations in parallel when modal opens
-            Animated.parallel([
-                Animated.timing(fadeAnim, {
-                    toValue: 1,
-                    duration: 300,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(slideAnim, {
-                    toValue: 0, // Slides up to its original position
-                    duration: 300,
-                    useNativeDriver: true,
-                }),
-            ]).start();
-        }
-    }, [fadeAnim, slideAnim, tocVisible]);
-
-    const handleClose = () => {
-        // Trigger exit animations in parallel, then hide the modal
-        Animated.parallel([
-            Animated.timing(fadeAnim, {
-                toValue: 0,
-                duration: 250,
-                useNativeDriver: true,
-            }),
-            Animated.timing(slideAnim, {
-                toValue: SCREEN_HEIGHT, // Slides back down off-screen
-                duration: 250,
-                useNativeDriver: true,
-            }),
-        ]).start(() => {
-            setTocVisible(false); // Turn off visibility after animation finishes
-        });
-    };
-
-    if (!hydrated || !foundBook) {
-        return (
-            <SafeAreaView style={styles.container}>
-                <Text style={{ color: Colors.light.text }}>{hydrated ? 'Book unavailable.' : 'Loading book…'}</Text>
-            </SafeAreaView>
-        );
-    }
+    if (!hydrated || !foundBook) return <SafeAreaView style={styles.status}><Text style={styles.statusText}>{hydrated ? 'This book is no longer available.' : 'Loading library…'}</Text></SafeAreaView>;
+    const changeFontSize = (amount: number) => setFontSize(Math.max(24, Math.min(120, fontSize + amount)));
 
     return (
-        <SafeAreaView style={styles.container}>
-            {/* Background cross-fade layers */}
-            <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: prevColors.background, opacity: bgOpacityPrev }]} />
-            <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, opacity: bgOpacityNext }]} />
-
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <TouchableOpacity
-                    style={styles.backButton}
-                    onPress={() => router.back()}
-                >
-                    <SymbolView name={{ ios: 'chevron.left', android: 'chevron_left', web: 'chevron_left' }} size={20} tintColor={colors.primary} />
-                </TouchableOpacity>
-
-                <Text style={[styles.chapterTitle, { color: colors.textSecondary ?? colors.text }]}>
-                    Chapter {chapterIndex + 1} / {chapters.length}
-                </Text>
-
-                <TouchableOpacity onPress={() => setTocVisible(true)} style={{ marginBottom: 8 }}>
-                    <SymbolView name={{ ios: 'line.horizontal.3', android: 'menu', web: 'menu' }} size={20} tintColor={colors.primary} />
-                </TouchableOpacity>
-
-                <Modal visible={tocVisible} transparent animationType="none" onRequestClose={handleClose}>
-
-                    <Pressable style={{ flex: 1, justifyContent: 'center' }} onPress={handleClose}>
-                        <Animated.View
-                            style={{
-                                ...StyleSheet.absoluteFill,
-                                backgroundColor: 'rgba(0,0,0,0.5)',
-                                opacity: fadeAnim // Links opacity to fade animation
-                            }}
-                        />
-
-                        <Animated.View
-                            style={{
-                                backgroundColor: '#fff',
-                                margin: 20,
-                                borderRadius: 12,
-                                maxHeight: '80%',
-                                transform: [{ translateY: slideAnim }] // Links vertical position to slide animation
-                            }}
-                            onTouchStart={(e) => e.stopPropagation()} // Halts press propagation on layout level
-                        >
-                            <FlatList
-                                data={chapters}
-                                keyExtractor={(_, idx) => String(idx)}
-                                renderItem={(props: { item: any; index: number }) => (
-                                    <TouchableOpacity
-                                        onPress={() => { goToChapter(props.index); handleClose(); }}
-                                        style={{ padding: 12, borderBottomWidth: 1, borderColor: '#eee' }}
-                                    >
-                                        <Text>{props.index + 1}. {props.item?.title}</Text>
-                                    </TouchableOpacity>
-                                )}
-                            />
-                        </Animated.View>
-                    </Pressable>
-                </Modal>
+        <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]}>
+            <View style={styles.header}>
+                <TouchableOpacity accessibilityLabel="Back to library" onPress={() => router.back()} style={styles.headerButton}><Text style={[styles.headerIcon, { color: colors.text }]}>‹</Text></TouchableOpacity>
+                <View style={styles.headerTitle}><Text numberOfLines={1} style={[styles.bookTitle, { color: colors.text }]}>{book.title}</Text><Text style={[styles.chapterLabel, { color: colors.textSecondary }]}>Chapter {chapterIndex + 1} of {chapters.length}</Text></View>
+                <TouchableOpacity accessibilityLabel="Choose chapter" onPress={() => setChaptersVisible(true)} style={styles.headerButton}><Text style={[styles.menuIcon, { color: colors.text }]}>☰</Text></TouchableOpacity>
             </View>
-
-            <ReaderGestures
-                onNext={next10}
-                onPrevious={prev10}
-                onIncreaseSpeed={increaseSpeed}
-                onDecreaseSpeed={decreaseSpeed}
-                onTogglePlay={playPause}
-            >
-                <View style={styles.gestureArea}>
-                    <View style={styles.readerCard}>
-                        {/* Card cross-fade backgrounds */}
-                        <Animated.View style={[StyleSheet.absoluteFill, { borderRadius: styles.readerCard.borderRadius, backgroundColor: prevColors.card, opacity: bgOpacityPrev }]} />
-                        <Animated.View style={[StyleSheet.absoluteFill, { borderRadius: styles.readerCard.borderRadius, backgroundColor: colors.card, opacity: bgOpacityNext }]} />
-                        <View style={[styles.pivotLine, { backgroundColor: colors.primary }]} />
-                        <WordDisplay word={word} fontSize={fontSize} textColor={colors.text} subtextColor={colors.textSecondary} />
-                    </View>
-                </View>
+            <ReaderGestures onNext={next10} onPrevious={prev10} onIncreaseSpeed={increaseSpeed} onDecreaseSpeed={decreaseSpeed} onTogglePlay={playPause}>
+                <View style={styles.readerArea}><View style={[styles.wordPanel, { backgroundColor: colors.card, borderColor: colors.border }]}><View style={[styles.focusLine, { backgroundColor: colors.primary }]} /><WordDisplay word={word} fontSize={fontSize} textColor={colors.text} /></View><Text style={[styles.gestureHint, { color: colors.textSecondary }]}>Tap to {playing ? 'pause' : 'play'} · swipe sideways to seek</Text></View>
             </ReaderGestures>
-
-            <View style={styles.progressSection}>
+            <View style={styles.bottom}>
                 <ProgressBar progress={bookProgress} />
-
-                <View style={styles.stats}>
-                    <Text style={[styles.stat, { color: colors.subtext ?? colors.textSecondary }]}>
-                        {index + 1}/{words.length}
-                    </Text>
-
-                    <Text style={[styles.stat, { color: colors.subtext ?? colors.textSecondary }]}>{wpm} WPM</Text>
-
-                    <Text style={[styles.stat, { color: colors.subtext ?? colors.textSecondary }]}>ETA: {Math.floor(eta / 60)}m {eta % 60}s</Text>
-                </View>
+                <View style={styles.metrics}><Text style={[styles.metric, { color: colors.textSecondary }]}>{index + 1} / {words.length} words</Text><Text style={[styles.metric, { color: colors.textSecondary }]}>{wpm} WPM</Text><Text style={[styles.metric, { color: colors.textSecondary }]}>{eta > 60 ? `${Math.ceil(eta / 60)} min left` : `${eta}s left`}</Text></View>
+                <View style={styles.playbackControls}><TouchableOpacity onPress={prev10} style={[styles.roundButton, { backgroundColor: colors.card }]}><Text style={[styles.controlText, { color: colors.text }]}>−10</Text></TouchableOpacity><TouchableOpacity onPress={playPause} style={[styles.playButton, { backgroundColor: colors.primary }]}><Text style={styles.playText}>{playing ? 'Ⅱ' : '▶'}</Text></TouchableOpacity><TouchableOpacity onPress={next10} style={[styles.roundButton, { backgroundColor: colors.card }]}><Text style={[styles.controlText, { color: colors.text }]}>+10</Text></TouchableOpacity></View>
+                <View style={styles.settings}><TouchableOpacity onPress={() => changeFontSize(-4)} style={[styles.settingButton, { borderColor: colors.border }]}><Text style={{ color: colors.text }}>A−</Text></TouchableOpacity><Text style={[styles.fontSize, { color: colors.textSecondary }]}>{fontSize}px</Text><TouchableOpacity onPress={() => changeFontSize(4)} style={[styles.settingButton, { borderColor: colors.border }]}><Text style={{ color: colors.text }}>A+</Text></TouchableOpacity></View>
             </View>
-
-            <View style={styles.controlsBlock}>
-                <Text style={[styles.hint, { color: colors.subtext ?? colors.textSecondary }]}>Swipe ← → seek</Text>
-                <Text style={[styles.hint, { color: colors.subtext ?? colors.textSecondary }]}>Tap play/pause</Text>
-
-                <View style={styles.fontControls}>
-                    <TouchableOpacity
-                        onPress={() => {
-                            const next = Math.max(24, fontSize - 4);
-                            setFontSize(next);
-                            updateProgress(book.id, { fontSize: next, lastOpened: Date.now() });
-                        }}
-                        style={[styles.fontBtn, { backgroundColor: colors.card }]}
-                    >
-                        <Text style={{ color: colors.text ?? colors.textSecondary }}>- A</Text>
-                    </TouchableOpacity>
-
-                    <Text style={[styles.fontLabel, { color: colors.text ?? colors.textSecondary }]}>{fontSize}px</Text>
-
-                    <TouchableOpacity
-                        onPress={() => {
-                            const next = Math.min(120, fontSize + 4);
-                            setFontSize(next);
-                            updateProgress(book.id, { fontSize: next, lastOpened: Date.now() });
-                        }}
-                        style={[styles.fontBtn, { backgroundColor: colors.card }]}
-                    >
-                        <Text style={{ color: colors.text ?? colors.textSecondary }}> A +</Text>
-                    </TouchableOpacity>
-                </View>
-
-                <View style={[styles.themeControls, { backgroundColor: colors.card }]}>
-                    <Animated.View
-                        style={[
-                            styles.themeToggleIndicator,
-                            { backgroundColor: colors.primary, transform: [{ translateX: indicatorX }] },
-                        ]}
-                    />
-                    <AnimatedTouchable
-                        onPress={() => {
-                            animateToggle('light');
-                            setTheme('light');
-                            setAppTheme('light');
-                            updateProgress(book.id, { theme: 'light', lastOpened: Date.now() });
-                        }}
-                        style={[
-                            styles.themeCircle,
-                            readerTheme === 'light' && styles.themeCircleActive,
-                            { backgroundColor: readerTheme === 'light' ? colors.primary : colors.card },
-                            { transform: [{ scale: toggleScale.light }] },
-                        ]}
-                    >
-                        <SymbolView
-                            name={{ ios: 'sun.max', android: 'wb_sunny', web: 'light_mode' }}
-                            size={18}
-                            tintColor={readerTheme === 'light' ? colors.background : colors.text}
-                        />
-                    </AnimatedTouchable>
-                    <AnimatedTouchable
-                        onPress={() => {
-                            animateToggle('dark');
-                            setTheme('dark');
-                            setAppTheme('dark');
-                            updateProgress(book.id, { theme: 'dark', lastOpened: Date.now() });
-                        }}
-                        style={[
-                            styles.themeCircle,
-                            readerTheme === 'dark' && styles.themeCircleActive,
-                            { backgroundColor: readerTheme === 'dark' ? colors.primary : colors.card },
-                            { transform: [{ scale: toggleScale.dark }] },
-                        ]}
-                    >
-                        <SymbolView
-                            name={{ ios: 'moon', android: 'dark_mode', web: 'dark_mode' }}
-                            size={18}
-                            tintColor={readerTheme === 'dark' ? colors.background : colors.text}
-                        />
-                    </AnimatedTouchable>
-
-                    <AnimatedTouchable
-                        onPress={() => {
-                            animateToggle('sepia');
-                            setTheme('sepia');
-                            setAppTheme('sepia');
-                            updateProgress(book.id, { theme: 'sepia', lastOpened: Date.now() });
-                        }}
-                        style={[
-                            styles.themeCircle,
-                            readerTheme === 'sepia' && styles.themeCircleActive,
-                            { backgroundColor: readerTheme === 'sepia' ? colors.primary : colors.card },
-                            { transform: [{ scale: toggleScale.sepia }] },
-                        ]}
-                    >
-                        <SymbolView
-                            name={{ ios: 'book.closed', android: 'book', web: 'menu_book' }}
-                            size={18}
-                            tintColor={readerTheme === 'sepia' ? colors.background : colors.text}
-                        />
-                    </AnimatedTouchable>
-                </View>
-            </View>
-        </SafeAreaView >
+            <Modal visible={chaptersVisible} transparent animationType="slide" onRequestClose={() => setChaptersVisible(false)}><Pressable style={styles.modalOverlay} onPress={() => setChaptersVisible(false)}><Pressable style={[styles.chapterSheet, { backgroundColor: colors.background }]} onPress={(event) => event.stopPropagation()}><Text style={[styles.sheetTitle, { color: colors.text }]}>Chapters</Text><FlatList data={chapters} keyExtractor={(_, itemIndex) => String(itemIndex)} renderItem={({ item, index: itemIndex }) => <TouchableOpacity onPress={() => { goToChapter(itemIndex); setChaptersVisible(false); }} style={[styles.chapterRow, itemIndex === chapterIndex && { backgroundColor: colors.backgroundElement }]}><Text numberOfLines={1} style={[styles.chapterRowText, { color: colors.text }]}>{itemIndex + 1}. {item.title}</Text></TouchableOpacity>} /></Pressable></Pressable></Modal>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        padding: 20,
-    },
-    coverWrap: {
-        alignItems: 'center',
-        marginBottom: 12,
-    },
-    coverLarge: {
-        width: 120,
-        height: 160,
-        borderRadius: 8,
-    },
-    backButton: {
-        paddingVertical: 8,
-        alignSelf: 'center',
-    },
-    backText: {
-        fontSize: 16,
-        fontWeight: '600',
-    },
-    chapterTitle: {
-        textAlign: 'center',
-        fontSize: 16,
-        fontWeight: '600',
-        marginBottom: 10,
-    },
-    gestureArea: {
-        flex: 1,
-        justifyContent: 'center',
-    },
-    readerCard: {
-        height: 200,
-        borderRadius: 20,
-        justifyContent: 'center',
-        alignItems: 'center',
-        overflow: 'hidden',
-    },
-    pivotLine: {
-        position: 'absolute',
-        width: 1,
-        top: 0,
-        bottom: 0,
-        left: '50%',
-        backgroundColor: '#60A5FA',
-        opacity: 0.45,
-        zIndex: 2,
-    },
-    fontControls: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: 12,
-    },
-    fontBtn: {
-        padding: 8,
-        borderRadius: 8,
-    },
-    fontLabel: {
-        marginHorizontal: 12,
-    },
-    themeControls: {
-        flexDirection: 'row',
-        gap: 10,
-        marginTop: 12,
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderRadius: 28,
-        overflow: 'hidden',
-    },
-    themeCircle: {
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: 'transparent',
-    },
-    themeToggleIndicator: {
-        position: 'absolute',
-        width: 42,
-        height: 42,
-        borderRadius: 21,
-        top: 4,
-        left: 4,
-        opacity: 0.15,
-    },
-    themeCircleActive: {
-        borderColor: '#FFF',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
-        shadowRadius: 4,
-        elevation: 3,
-    },
-    themeIcon: {
-        fontSize: 18,
-    },
-    progressSection: {
-        width: '100%',
-        maxWidth: 520,
-        alignSelf: 'center',
-        alignItems: 'center',
-    },
-    stats: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        flexWrap: 'wrap',
-        marginVertical: 16,
-    },
-    stat: {
-        marginHorizontal: 12,
-    },
-    controlsBlock: {
-        alignItems: 'center',
-        marginBottom: 20,
-        width: '100%',
-    },
-    info: {
-        alignItems: 'center',
-        marginBottom: 20,
-    },
-    speed: {
-        fontSize: 22,
-        fontWeight: '700',
-    },
-    hint: {
-        fontSize: 13,
-        marginTop: 4,
-    },
+    screen: { flex: 1, paddingHorizontal: 20 }, status: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FAFAF9' }, statusText: { color: '#111827' },
+    header: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 }, headerButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center' }, headerIcon: { fontSize: 38, lineHeight: 40 }, menuIcon: { fontSize: 22 }, headerTitle: { flex: 1, alignItems: 'center', paddingHorizontal: 8 }, bookTitle: { fontSize: 16, fontWeight: '700' }, chapterLabel: { fontSize: 12, marginTop: 2 },
+    readerArea: { flex: 1, justifyContent: 'center' }, wordPanel: { height: 210, borderRadius: 24, borderWidth: 1, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }, focusLine: { position: 'absolute', height: '100%', width: 1, left: '50%', opacity: .4 }, gestureHint: { textAlign: 'center', marginTop: 16, fontSize: 12 },
+    bottom: { paddingBottom: 16 }, metrics: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }, metric: { fontSize: 12 }, playbackControls: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 26, marginVertical: 20 }, roundButton: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' }, controlText: { fontWeight: '700' }, playButton: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center' }, playText: { color: '#fff', fontSize: 26 },
+    settings: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10 }, settingButton: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8 }, fontSize: { width: 42, fontSize: 12, textAlign: 'center' },
+    modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,.35)' }, chapterSheet: { maxHeight: '70%', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 }, sheetTitle: { fontSize: 20, fontWeight: '700', marginBottom: 10 }, chapterRow: { paddingVertical: 14, paddingHorizontal: 10, borderRadius: 10 }, chapterRowText: { fontSize: 15 },
 });
