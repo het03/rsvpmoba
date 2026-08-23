@@ -26,7 +26,10 @@ export default function Nav() {
                 return (
                     <Pressable
                         key={key}
-                        onPress={() => router.push(href as any)}
+                        onPress={() => {
+                            if (pathname === href) return;
+                            router.push(href as any);
+                        }}
                         style={[styles.navItem, isActive && styles.activeNavItem]}
                     >
                         <Icon
@@ -59,6 +62,8 @@ const styles = StyleSheet.create({
     navItem: {
         alignItems: 'center',
         justifyContent: 'center',
+        width: 48,
+        height: 48,
         gap: 6,
         paddingVertical: 8,
         paddingHorizontal: 12,
