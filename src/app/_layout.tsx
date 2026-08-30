@@ -1,9 +1,9 @@
+import Nav from '@/components/Shared/Nav';
 import { useFonts } from 'expo-font';
 import { SplashScreen, Stack } from 'expo-router';
 import { useEffect } from 'react';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { View } from 'react-native';
-import Nav from '@/components/Shared/Nav';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 // 1. Import regular and italic Fraunces variants
 import {
@@ -17,6 +17,8 @@ import {
 import {
   Inter_400Regular,
   Inter_400Regular_Italic,
+  Inter_500Medium,
+  Inter_600SemiBold,
   Inter_700Bold,
   Inter_700Bold_Italic
 } from '@expo-google-fonts/inter';
@@ -34,6 +36,8 @@ export default function RootLayout() {
     // Inter
     'Inter-Regular': Inter_400Regular,
     'Inter-Italic': Inter_400Regular_Italic,
+    'Inter-Medium': Inter_500Medium,
+    'Inter-SemiBold': Inter_600SemiBold,
     'Inter-Bold': Inter_700Bold,
     'Inter-BoldItalic': Inter_700Bold_Italic,
   });

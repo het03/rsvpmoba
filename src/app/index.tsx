@@ -1,14 +1,22 @@
-import { Text, View, StyleSheet, TouchableOpacity } from "react-native";
-import { SafeAreaView } from 'react-native-safe-area-context';
-import SearchIcon from "../../assets/images/tabIcons/Search.svg";
-import AddIcon from '../../assets/images/tabIcons/Add.svg';
 import BookPlaceholder from "@/components/addBook";
 import GreetingHeader from "@/components/greetings";
+import ImportModal from "@/components/ImportModal/ImportModal";
+import { useState } from "react";
+import { StyleSheet, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from 'react-native-safe-area-context';
+import AddIcon from '../../assets/images/tabIcons/Add.svg';
+import SearchIcon from "../../assets/images/tabIcons/Search.svg";
 
 export default function Index() {
+  const [isImportOpen, setIsImportOpen] = useState(false);
+
+  const openImportModal = () => setIsImportOpen(true);
+  const closeImportModal = () => setIsImportOpen(false);
+
   const handleAddBook = () => {
-    console.log('Add book from cmp');
-  }
+    openImportModal();
+  };
+
   return (
     <SafeAreaView style={styles.screen}>
       <View style={styles.header}>
@@ -23,7 +31,7 @@ export default function Index() {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.iconBorderContainer}
-            onPress={() => console.log('Add Clicked')}
+            onPress={openImportModal}
           >
             <AddIcon width={16} height={16} />
           </TouchableOpacity>
@@ -32,6 +40,8 @@ export default function Index() {
       <View style={styles.bookContainer}>
         <BookPlaceholder onPress={handleAddBook} />
       </View>
+
+      <ImportModal visible={isImportOpen} onClose={closeImportModal} />
     </SafeAreaView>
   );
 }
@@ -46,7 +56,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 18,
   },
   textGroup: {
     gap: 0,
@@ -67,6 +76,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   bookContainer: {
+    alignSelf: 'flex-start',
     paddingHorizontal: '5%',
     paddingTop: 24,
   }
