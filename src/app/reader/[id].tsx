@@ -84,15 +84,17 @@ export default function ReaderScreen() {
         setPrefs(prefs);
 
         const rows = await db.getAllAsync<{
-          id: number; title: string; format: string;
-          file_path: string; file_size: number; date_added: number; total_words: number;
+          id: number; title: string; author: string; cover_data: string | null;
+          format: string; file_path: string; file_size: number; date_added: number; total_words: number;
         }>('SELECT * FROM books WHERE id = ?', [Number(id)]);
 
         if (rows.length === 0) { setError('Book not found'); return; }
 
         const r = rows[0];
         const b: Book = {
-          id: r.id, title: r.title, format: r.format as Book['format'],
+          id: r.id, title: r.title, author: r.author ?? '',
+          coverData: r.cover_data ?? null,
+          format: r.format as Book['format'],
           filePath: r.file_path, fileSize: r.file_size,
           dateAdded: r.date_added, totalWords: r.total_words,
         };
