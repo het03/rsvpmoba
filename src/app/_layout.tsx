@@ -1,4 +1,5 @@
 import Nav from '@/components/Shared/Nav';
+import { initDb } from '@/db';
 import { useFonts } from 'expo-font';
 import { SplashScreen, Stack } from 'expo-router';
 import { useEffect } from 'react';
@@ -41,6 +42,10 @@ export default function RootLayout() {
     'Inter-Bold': Inter_700Bold,
     'Inter-BoldItalic': Inter_700Bold_Italic,
   });
+
+  useEffect(() => {
+    initDb().catch(e => console.error('initDb failed:', e));
+  }, []);
 
   useEffect(() => {
     if (loaded || error) {

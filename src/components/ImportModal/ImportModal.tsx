@@ -1,6 +1,10 @@
+import { getDb } from '@/db';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useState } from 'react';
 import {
+    ActivityIndicator,
     Modal,
+    Platform,
     Pressable,
     StyleSheet,
     Text,
@@ -13,24 +17,63 @@ import DropZone, { FileEntry } from './DropZone';
 type ImportModalProps = {
     visible: boolean;
     onClose: () => void;
+    onImportComplete?: () => void;
 };
 
-export default function ImportModal({ visible, onClose }: ImportModalProps) {
+export default function ImportModal({ visible, onClose, onImportComplete }: ImportModalProps) {
     const [files, setFiles] = useState<FileEntry[]>([]);
+    const [isImporting, setIsImporting] = useState(false);
 
     const hasFiles = files.length > 0;
     const allFilesAreInvalid = hasFiles && files.every((file) => file.state === 'error');
-    const isImportDisabled = !hasFiles || allFilesAreInvalid;
+    const isImportDisabled = !hasFiles || allFilesAreInvalid || isImporting;
 
     const closeAndClearModal = () => {
         setFiles([]);
         onClose();
     };
 
-    const handleApplyFiles = () => {
+    const handleApplyFiles = async () => {
         if (isImportDisabled) return;
 
-        if (hasFiles) {
+        const validFiles = files.filter((f) => f.state === 'ready' && f.uri);
+        if (validFiles.length === 0) {
+            closeAndClearModal();
+            return;
+        }
+
+        setIsImporting(true);
+        try {
+            const isWeb = Platform.OS === 'web';
+            const booksDir = isWeb ? '' : `${FileSystem.documentDirectory}books/`;
+
+            if (!isWeb) {
+                await FileSystem.makeDirectoryAsync(booksDir, { intermediates: true });
+            }
+
+            const db = await getDb();
+            for (const file of validFiles) {
+                // On web there is no persistent native FS — use the picker URI directly.
+                // On native, copy the file into the app's documents directory first.
+                let dest = file.uri!;
+                if (!isWeb) {
+                    dest = booksDir + file.name;
+                    await FileSystem.copyAsync({ from: file.uri!, to: dest });
+                }
+
+                const format = file.name.toLowerCase().endsWith('.epub') ? 'epub' : 'txt';
+                const title = file.name.replace(/\.(epub|txt)$/i, '');
+                await db.runAsync(
+                    'INSERT OR IGNORE INTO books (title, format, file_path, file_size, date_added, total_words) VALUES (?, ?, ?, ?, ?, ?)',
+                    [title, format, dest, file.rawSize ?? 0, Date.now(), 0]
+                );
+            }
+
+            onImportComplete?.();
+        } catch (e) {
+            console.error('Import failed:', e);
+        } finally {
+            setIsImporting(false);
             closeAndClearModal();
         }
     };
@@ -61,8 +104,12 @@ export default function ImportModal({ visible, onClose }: ImportModalProps) {
                         <TouchableOpacity style={styles.cancelButton} onPress={handleClose}>
                             <Text style={styles.cancelText}>Cancel</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={[styles.primaryButton, isImportDisabled && styles.disabledButton]} onPress={handleApplyFiles}>
-                            <Text style={[styles.primaryText, isImportDisabled && styles.disabledButtonText]}>{hasFiles ? 'Import Files' : 'Import File'}</Text>
+                        <TouchableOpacity style={[styles.primaryButton, isImportDisabled && styles.disabledButton]} onPress={handleApplyFiles} disabled={isImportDisabled}>
+                            {isImporting ? (
+                                <ActivityIndicator size="small" color="#FFFFFF" />
+                            ) : (
+                                <Text style={[styles.primaryText, isImportDisabled && styles.disabledButtonText]}>{hasFiles ? 'Import Files' : 'Import File'}</Text>
+                            )}
                         </TouchableOpacity>
                     </View>
                 </Pressable>

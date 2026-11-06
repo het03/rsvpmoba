@@ -15,6 +15,7 @@ export type UploadState = 'idle' | 'selected' | 'error' | 'ready';
 export type FileEntry = {
     name: string;
     size: string;
+    rawSize?: number;
     type: string;
     state: UploadState;
     uri?: string;
@@ -95,6 +96,7 @@ export default function DropZone({ files, onFilesChange }: DropZoneProps) {
                     return {
                         name: asset.name,
                         size: formatFileSize(asset.size),
+                        rawSize: asset.size,
                         type: getFileType(asset.mimeType, asset.name),
                         state: isValid ? 'ready' : 'error',
                         uri: asset.uri,
