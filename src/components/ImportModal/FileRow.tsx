@@ -8,7 +8,7 @@ import { useAppTheme } from '@/lib/appTheme';
 import FileIcon from '../../../assets/images/uploadIcons/File.svg';
 import WrongFileIcon from '../../../assets/images/uploadIcons/Wrong_File.svg';
 import CloseIcon from '../../../assets/images/uploadIcons/close.svg';
-import { FileEntry, getFileType } from './DropZone';
+import { type FileEntry, getFileType } from './types';
 
 type FileRowProps = {
     file: FileEntry;

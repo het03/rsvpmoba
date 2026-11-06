@@ -10,24 +10,15 @@ import {
 import UploadFileIcon from '../../../assets/images/uploadIcons/Upload_File.svg';
 import WrongFileIcon from '../../../assets/images/uploadIcons/Wrong_File.svg';
 import FileRow from './FileRow';
+import { type FileEntry, getFileType, validateFileType } from './types';
 
-export type UploadState = 'idle' | 'selected' | 'error' | 'ready';
-
-export type FileEntry = {
-    name: string;
-    size: string;
-    rawSize?: number;
-    type: string;
-    state: UploadState;
-    uri?: string;
-};
+export type { FileEntry };
 
 type DropZoneProps = {
     files: FileEntry[];
     onFilesChange: (files: FileEntry[]) => void;
 };
 
-const VALID_FILE_TYPES = ['EPUB', 'TXT', 'PDF'];
 const MAX_FILES = 5;
 
 const formatFileSize = (bytes: number | undefined): string => {
@@ -36,30 +27,6 @@ const formatFileSize = (bytes: number | undefined): string => {
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return Math.round((bytes / Math.pow(k, i)) * 10) / 10 + ' ' + sizes[i];
-};
-
-export const getFileType = (mimeType?: string, fileName?: string): string => {
-    if (fileName) {
-        const ext = fileName.split('.').pop()?.toUpperCase();
-        if (ext) {
-            if (VALID_FILE_TYPES.includes(ext)) return ext;
-            return ext;
-        }
-    }
-    if (mimeType?.includes('epub')) return 'EPUB';
-    if (mimeType?.includes('text')) return 'TXT';
-    if (mimeType?.includes('pdf')) return 'PDF';
-    if (mimeType?.includes('video/mp4')) return 'MP4';
-    if (mimeType?.includes('video')) return 'VIDEO';
-    if (mimeType?.includes('image')) return 'IMAGE';
-    if (mimeType?.includes('audio')) return 'AUDIO';
-
-    return 'UNKNOWN';
-};
-
-const validateFileType = (mimeType?: string, fileName?: string): boolean => {
-    const fileType = getFileType(mimeType, fileName);
-    return VALID_FILE_TYPES.includes(fileType);
 };
 
 export default function DropZone({ files, onFilesChange }: DropZoneProps) {
