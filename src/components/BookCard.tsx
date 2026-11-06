@@ -50,6 +50,10 @@ const styles = StyleSheet.create({
     padding: 10,
     justifyContent: 'space-between',
     overflow: 'hidden',
+    // Prevent mobile browsers from intercepting long-press with their context menu
+    userSelect: 'none',
+    // @ts-ignore — web-only CSS property (suppresses iOS Safari callout on tap-hold)
+    WebkitTouchCallout: 'none',
   },
   title: {
     fontFamily: 'Inter-Medium',

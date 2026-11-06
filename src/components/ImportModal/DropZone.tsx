@@ -85,6 +85,7 @@ export default function DropZone({ files, onFilesChange }: DropZoneProps) {
 
             const result = await DocumentPicker.getDocumentAsync({
                 multiple: true,
+                copyToCacheDirectory: false,
             });
 
             if (result.assets && result.assets.length > 0) {
