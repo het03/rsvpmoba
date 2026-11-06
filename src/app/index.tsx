@@ -1,11 +1,12 @@
 import BookPlaceholder from '@/components/addBook';
 import BookCard from '@/components/BookCard';
+import DeleteConfirmModal from '@/components/DeleteConfirmModal';
 import GreetingHeader from '@/components/greetings';
 import ImportModal from '@/components/ImportModal/ImportModal';
 import { getDb, type Book } from '@/db';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AddIcon from '../../assets/images/tabIcons/Add.svg';
 import SearchIcon from '../../assets/images/tabIcons/Search.svg';
@@ -13,6 +14,7 @@ import SearchIcon from '../../assets/images/tabIcons/Search.svg';
 export default function Index() {
   const [books, setBooks] = useState<Book[]>([]);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [bookToDelete, setBookToDelete] = useState<Book | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [query, setQuery] = useState('');
 
@@ -47,20 +49,17 @@ export default function Index() {
   );
 
   const confirmDelete = (book: Book) => {
-    Alert.alert('Remove book?', book.title, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Remove', style: 'destructive',
-        onPress: async () => {
-          if (Platform.OS !== 'web') {
-            await FileSystem.deleteAsync(book.filePath, { idempotent: true });
-          }
-          const db = await getDb();
-          await db.runAsync('DELETE FROM books WHERE id = ?', [book.id]);
-          setBooks(prev => prev.filter(b => b.id !== book.id));
-        },
-      },
-    ]);
+    setBookToDelete(book);
+  };
+
+  const handleDelete = async (book: Book) => {
+    setBookToDelete(null);
+    if (Platform.OS !== 'web') {
+      await FileSystem.deleteAsync(book.filePath, { idempotent: true });
+    }
+    const db = await getDb();
+    await db.runAsync('DELETE FROM books WHERE id = ?', [book.id]);
+    setBooks(prev => prev.filter(b => b.id !== book.id));
   };
 
   return (
@@ -106,6 +105,12 @@ export default function Index() {
         visible={isImportOpen}
         onClose={() => setIsImportOpen(false)}
         onImportComplete={loadBooks}
+      />
+
+      <DeleteConfirmModal
+        book={bookToDelete}
+        onCancel={() => setBookToDelete(null)}
+        onConfirm={handleDelete}
       />
     </SafeAreaView>
   );
