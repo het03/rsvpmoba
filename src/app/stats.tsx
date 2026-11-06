@@ -1,9 +1,11 @@
+import { useAppTheme } from '@/lib/appTheme';
 import { View, Text, StyleSheet } from 'react-native';
 
 export default function StatsScreen() {
+    const theme = useAppTheme();
     return (
-        <View style={styles.container}>
-            <Text style={styles.text}>Stats</Text>
+        <View style={[styles.container, { backgroundColor: theme.bg }]}>
+            <Text style={[styles.text, { color: theme.text }]}>Stats</Text>
         </View>
     );
 }
@@ -13,11 +15,9 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#FFFFFF',
     },
     text: {
         fontSize: 24,
         fontWeight: '600',
-        color: '#111827',
     },
 });

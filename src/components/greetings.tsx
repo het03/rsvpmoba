@@ -1,11 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { useAppTheme } from '@/lib/appTheme';
 
 interface GreetingHeaderProps {
     title: string;
 }
 
 export default function GreetingHeader({ title }: GreetingHeaderProps) {
+    const theme = useAppTheme();
     const [greeting, setGreeting] = useState(() => getGreeting());
 
     function getGreeting() {
@@ -13,8 +15,6 @@ export default function GreetingHeader({ title }: GreetingHeaderProps) {
         if (hour < 12) return 'good morning';
         if (hour < 17) return 'good afternoon';
         return 'good evening';
-
-
     }
 
     useEffect(() => {
@@ -27,8 +27,8 @@ export default function GreetingHeader({ title }: GreetingHeaderProps) {
 
     return (
         <View style={styles.textGroup}>
-            <Text style={styles.greetings}>{greeting}</Text>
-            <Text style={styles.title}>{title}</Text>
+            <Text style={[styles.greetings, { color: theme.text }]}>{greeting}</Text>
+            <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
         </View>
     );
 }
@@ -38,12 +38,10 @@ const styles = StyleSheet.create({
         gap: 0,
     },
     greetings: {
-        color: '#1E1E1E',
         fontFamily: 'Fraunces-Italic',
         fontSize: 16,
     },
     title: {
-        color: '#1E1E1E',
         fontFamily: 'Fraunces-Regular',
         fontSize: 26,
     },

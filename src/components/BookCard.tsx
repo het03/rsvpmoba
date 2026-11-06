@@ -1,4 +1,5 @@
 import { type Book } from '@/db';
+import { Image } from 'expo-image';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const SPINE_COLORS = ['#1E1E1E', '#2D3A2E', '#1A2535', '#3A1A1A', '#1A1A3A'];
@@ -18,62 +19,147 @@ function formatBytes(bytes: number): string {
 
 type BookCardProps = {
   book: Book;
+  cardWidth: number;
+  cardHeight: number;
+  progress?: number; // 0–1
+  onPress: () => void;
   onLongPress: () => void;
 };
 
-export default function BookCard({ book, onLongPress }: BookCardProps) {
+export default function BookCard({ book, cardWidth, cardHeight, progress = 0, onPress, onLongPress }: BookCardProps) {
+  const hasCover = !!book.coverData;
+
   return (
     <TouchableOpacity
-      style={[styles.card, { backgroundColor: spineColor(book.title) }]}
+      style={[styles.card, { width: cardWidth, height: cardHeight }]}
+      onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={500}
-      activeOpacity={0.8}
+      activeOpacity={0.85}
     >
-      <Text numberOfLines={4} style={styles.title}>
-        {book.title}
-      </Text>
-      <View style={styles.footer}>
-        <Text style={styles.format}>{book.format.toUpperCase()}</Text>
-        {book.fileSize > 0 && (
-          <Text style={styles.size}>{formatBytes(book.fileSize)}</Text>
-        )}
-      </View>
+      {hasCover ? (
+        <>
+          <Image
+            source={{ uri: book.coverData! }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+          />
+          <View style={styles.scrim} />
+          <View style={styles.coverTextBlock}>
+            <Text numberOfLines={2} style={styles.coverTitle}>{book.title}</Text>
+            {!!book.author && (
+              <Text numberOfLines={1} style={styles.coverAuthor}>{book.author}</Text>
+            )}
+          </View>
+        </>
+      ) : (
+        <>
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: spineColor(book.title) }]} />
+          <Text numberOfLines={4} style={styles.spineTitle}>{book.title}</Text>
+          <View style={styles.spineFooter}>
+            {!!book.author && (
+              <Text numberOfLines={1} style={styles.spineAuthor}>{book.author}</Text>
+            )}
+            <Text style={styles.spineFormat}>{book.format.toUpperCase()}</Text>
+            {book.fileSize > 0 && (
+              <Text style={styles.spineSize}>{formatBytes(book.fileSize)}</Text>
+            )}
+          </View>
+        </>
+      )}
+
+      {/* Progress bar — only shown when the book has been opened */}
+      {progress > 0.01 && (
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, { width: `${Math.min(1, progress) * 100}%` as any }]} />
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    width: 100,
-    height: 150,
-    borderRadius: 2,
-    padding: 10,
-    justifyContent: 'space-between',
+    borderRadius: 4,
     overflow: 'hidden',
-    // Prevent mobile browsers from intercepting long-press with their context menu
-    userSelect: 'none',
-    // @ts-ignore — web-only CSS property (suppresses iOS Safari callout on tap-hold)
-    WebkitTouchCallout: 'none',
+  } as any,
+
+  // ── Cover variant ──
+  scrim: {
+    position: 'absolute',
+    left: 0, right: 0, bottom: 0,
+    height: '55%',
+    // A dark gradient scrim built from two overlapping semi-transparent views
+    // since RN LinearGradient isn't available without expo-linear-gradient.
+    backgroundColor: 'transparent',
+    // Shadow from the bottom
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
   },
-  title: {
+  coverTextBlock: {
+    position: 'absolute',
+    left: 0, right: 0, bottom: 0,
+    padding: 8,
+    paddingTop: 24,
+    backgroundColor: 'rgba(0,0,0,0.52)',
+  },
+  coverTitle: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 10,
+    color: '#FFFFFF',
+    lineHeight: 14,
+  },
+  coverAuthor: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 8,
+    color: 'rgba(255,255,255,0.65)',
+    marginTop: 2,
+  },
+
+  // ── Spine (no cover) variant ──
+  spineTitle: {
     fontFamily: 'Inter-Medium',
     fontSize: 11,
     color: '#FFFFFF',
     lineHeight: 15,
     flex: 1,
+    padding: 10,
   },
-  footer: {
+  spineFooter: {
+    padding: 10,
+    paddingTop: 0,
     gap: 2,
   },
-  format: {
+  spineAuthor: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 8,
+    color: 'rgba(255,255,255,0.55)',
+  },
+  spineFormat: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 8,
     color: 'rgba(255,255,255,0.5)',
     letterSpacing: 0.5,
   },
-  size: {
+  spineSize: {
     fontFamily: 'Inter-Regular',
     fontSize: 8,
     color: 'rgba(255,255,255,0.35)',
+  },
+
+  // ── Progress bar ──
+  progressTrack: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  progressFill: {
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.85)',
   },
 });

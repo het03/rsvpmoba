@@ -1,9 +1,11 @@
 import Nav from '@/components/Shared/Nav';
+import React from 'react';
 import { initDb } from '@/db';
+import { useAppTheme } from '@/lib/appTheme';
 import { useFonts } from 'expo-font';
-import { SplashScreen, Stack } from 'expo-router';
+import { SplashScreen, Stack, usePathname, useRouter } from 'expo-router';
 import { useEffect } from 'react';
-import { View } from 'react-native';
+import { BackHandler, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 // 1. Import regular and italic Fraunces variants
@@ -25,6 +27,17 @@ import {
 } from '@expo-google-fonts/inter';
 
 SplashScreen.preventAutoHideAsync();
+
+function RootShell({ children }: { children: React.ReactNode }) {
+  const theme = useAppTheme();
+  return (
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: theme.bg }}>
+      <View style={{ flex: 1, backgroundColor: theme.bg }}>
+        {children}
+      </View>
+    </GestureHandlerRootView>
+  );
+}
 
 export default function RootLayout() {
   const [loaded, error] = useFonts({
@@ -58,13 +71,34 @@ export default function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <View style={{ flex: 1 }}>
-        <Stack screenOptions={{ headerShown: false }} />
-        <View style={{ paddingHorizontal: 16, paddingBottom: 26, backgroundColor: '#FFFFFF', alignItems: 'center' }}>
-          <Nav />
-        </View>
-      </View>
-    </GestureHandlerRootView>
+    <RootShell>
+      <Stack screenOptions={{ headerShown: false }} />
+      <NavBar />
+    </RootShell>
+  );
+}
+
+function NavBar() {
+  const theme = useAppTheme();
+  const pathname = usePathname();
+  const router = useRouter();
+
+  // On any tab page other than home, hardware back → go home.
+  useEffect(() => {
+    // Skip for home (let Android exit normally) and reader detail (has its own handler).
+    if (pathname === '/' || pathname.startsWith('/reader/')) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      router.replace('/');
+      return true;
+    });
+    return () => sub.remove();
+  }, [pathname]);
+
+  // Hide nav while reading — the reader has its own header + back button.
+  if (pathname.startsWith('/reader/')) return null;
+  return (
+    <View style={{ paddingHorizontal: 16, paddingBottom: 26, backgroundColor: theme.bg, alignItems: 'center' }}>
+      <Nav />
+    </View>
   );
 }

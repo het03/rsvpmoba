@@ -1,4 +1,7 @@
 import { getDb } from '@/db';
+import { useAppTheme } from '@/lib/appTheme';
+import { extractEpubMetadata } from '@/lib/epubMetadata';
+import { webStoreFile } from '@/lib/webFileStore';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useState } from 'react';
 import {
@@ -21,6 +24,7 @@ type ImportModalProps = {
 };
 
 export default function ImportModal({ visible, onClose, onImportComplete }: ImportModalProps) {
+    const theme = useAppTheme();
     const [files, setFiles] = useState<FileEntry[]>([]);
     const [isImporting, setIsImporting] = useState(false);
 
@@ -53,19 +57,34 @@ export default function ImportModal({ visible, onClose, onImportComplete }: Impo
 
             const db = await getDb();
             for (const file of validFiles) {
-                // On web there is no persistent native FS — use the picker URI directly.
-                // On native, copy the file into the app's documents directory first.
+                const format = file.name.toLowerCase().endsWith('.epub') ? 'epub' : 'txt';
                 let dest = file.uri!;
+                let webBuf: ArrayBuffer | undefined;
+
                 if (!isWeb) {
                     dest = booksDir + file.name;
                     await FileSystem.copyAsync({ from: file.uri!, to: dest });
+                } else {
+                    // Persist file bytes to IndexedDB now — the picker URI expires after this session.
+                    const resp = await fetch(file.uri!);
+                    webBuf = await resp.arrayBuffer();
+                    await webStoreFile(file.uri!, webBuf);
                 }
 
-                const format = file.name.toLowerCase().endsWith('.epub') ? 'epub' : 'txt';
-                const title = file.name.replace(/\.(epub|txt)$/i, '');
+                // Extract metadata from EPUB; fall back to filename as title.
+                let title = file.name.replace(/\.(epub|txt)$/i, '');
+                let author = '';
+                let coverData: string | null = null;
+                if (format === 'epub') {
+                    const meta = await extractEpubMetadata(dest, webBuf);
+                    if (meta.title) title = meta.title;
+                    author = meta.author;
+                    coverData = meta.coverData;
+                }
+
                 await db.runAsync(
-                    'INSERT OR IGNORE INTO books (title, format, file_path, file_size, date_added, total_words) VALUES (?, ?, ?, ?, ?, ?)',
-                    [title, format, dest, file.rawSize ?? 0, Date.now(), 0]
+                    'INSERT OR IGNORE INTO books (title, author, cover_data, format, file_path, file_size, date_added, total_words) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    [title, author, coverData, format, dest, file.rawSize ?? 0, Date.now(), 0]
                 );
             }
 
@@ -90,25 +109,25 @@ export default function ImportModal({ visible, onClose, onImportComplete }: Impo
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
             <Pressable style={styles.backdrop} onPress={handleClose}>
-                <Pressable style={styles.modal} onPress={() => undefined}>
+                <Pressable style={[styles.modal, { backgroundColor: theme.surface }]} onPress={() => undefined}>
                     <View style={styles.modalHeader}>
-                        <Text style={styles.title}>Import</Text>
-                        <TouchableOpacity style={styles.close} onPress={handleClose} hitSlop={10}>
-                            <CloseIcon width={8} height={8} />
+                        <Text style={[styles.title, { color: theme.text }]}>Import</Text>
+                        <TouchableOpacity style={[styles.close, { borderColor: theme.borderSubtle }]} onPress={handleClose} hitSlop={10}>
+                            <CloseIcon width={8} height={8} color={theme.text} />
                         </TouchableOpacity>
                     </View>
 
                     <DropZone files={files} onFilesChange={setFiles} />
 
                     <View style={styles.footer}>
-                        <TouchableOpacity style={styles.cancelButton} onPress={handleClose}>
-                            <Text style={styles.cancelText}>Cancel</Text>
+                        <TouchableOpacity style={[styles.cancelButton, { borderColor: theme.borderSubtle }]} onPress={handleClose}>
+                            <Text style={[styles.cancelText, { color: theme.textSub }]}>Cancel</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={[styles.primaryButton, isImportDisabled && styles.disabledButton]} onPress={handleApplyFiles} disabled={isImportDisabled}>
+                        <TouchableOpacity style={[styles.primaryButton, { backgroundColor: isImportDisabled ? theme.borderSubtle : theme.navIconActiveBg }]} onPress={handleApplyFiles} disabled={isImportDisabled}>
                             {isImporting ? (
-                                <ActivityIndicator size="small" color="#FFFFFF" />
+                                <ActivityIndicator size="small" color={theme.navIconActiveColor} />
                             ) : (
-                                <Text style={[styles.primaryText, isImportDisabled && styles.disabledButtonText]}>{hasFiles ? 'Import Files' : 'Import File'}</Text>
+                                <Text style={[styles.primaryText, { color: isImportDisabled ? theme.textSub : theme.navIconActiveColor }]}>{hasFiles ? 'Import Files' : 'Import File'}</Text>
                             )}
                         </TouchableOpacity>
                     </View>
@@ -129,7 +148,6 @@ const styles = StyleSheet.create({
     modal: {
         width: '100%',
         maxWidth: 420,
-        backgroundColor: '#FFFFFF',
         borderRadius: 18,
         borderWidth: 1,
         borderColor: 'transparent',
@@ -147,14 +165,12 @@ const styles = StyleSheet.create({
     title: {
         fontFamily: 'Inter-SemiBold',
         fontSize: 14,
-        color: '#1E1E1E',
     },
     close: {
         width: 20,
         height: 20,
         justifyContent: 'center',
         alignItems: 'center',
-        borderColor: '#CCCCCC',
         borderWidth: 0.5,
         borderRadius: 4,
     },
@@ -170,7 +186,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         backgroundColor: 'transparent',
         borderWidth: 1,
-        borderColor: '#CCCCCC',
         borderRadius: 6,
         paddingHorizontal: 12,
         paddingVertical: 7,
@@ -178,25 +193,16 @@ const styles = StyleSheet.create({
     cancelText: {
         fontFamily: 'Inter-SemiBold',
         fontSize: 10,
-        color: '#4D4D4D',
     },
     primaryButton: {
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#1E1E1E',
         borderRadius: 6,
         paddingHorizontal: 12,
         paddingVertical: 7,
     },
-    disabledButton: {
-        backgroundColor: '#CCCCCC',
-    },
-    disabledButtonText: {
-        color: '#4D4D4D',
-    },
     primaryText: {
         fontFamily: 'Inter-SemiBold',
         fontSize: 10,
-        color: '#FFFFFF',
     },
 });

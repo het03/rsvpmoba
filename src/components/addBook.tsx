@@ -1,17 +1,20 @@
-import React from 'react';
+import { useAppTheme } from '@/lib/appTheme';
 import { StyleSheet, Pressable, View } from 'react-native';
 import AddIcon from '../../assets/images/tabIcons/Add.svg';
 
 interface BookPlaceholderProps {
     onPress: () => void;
+    cardWidth: number;
+    cardHeight: number;
 }
 
-export default function BookPlaceholder({ onPress }: BookPlaceholderProps) {
+export default function BookPlaceholder({ onPress, cardWidth, cardHeight }: BookPlaceholderProps) {
+    const theme = useAppTheme();
     return (
         <Pressable onPress={onPress}>
             {({ pressed }) => (
-                <View style={[styles.addBook, pressed && styles.pressedState]}>
-                    <AddIcon width={16} height={16} />
+                <View style={[styles.addBook, { width: cardWidth, height: cardHeight, borderColor: theme.border }, pressed && styles.pressedState]}>
+                    <AddIcon width={16} height={16} color={theme.border} />
                 </View>
             )}
         </Pressable>
@@ -20,11 +23,8 @@ export default function BookPlaceholder({ onPress }: BookPlaceholderProps) {
 
 const styles = StyleSheet.create({
     addBook: {
-        width: 100,
-        height: 150,
         borderRadius: 0,
         borderWidth: 1,
-        borderColor: '#1E1E1E',
         borderStyle: 'dashed',
         justifyContent: 'center',
         alignItems: 'center',

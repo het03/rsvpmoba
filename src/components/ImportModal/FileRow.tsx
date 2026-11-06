@@ -4,6 +4,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { useAppTheme } from '@/lib/appTheme';
 import FileIcon from '../../../assets/images/uploadIcons/File.svg';
 import WrongFileIcon from '../../../assets/images/uploadIcons/Wrong_File.svg';
 import CloseIcon from '../../../assets/images/uploadIcons/close.svg';
@@ -16,7 +17,7 @@ type FileRowProps = {
 };
 
 export default function FileRow({ file, index, onRemove }: FileRowProps) {
-
+    const theme = useAppTheme();
     const detedctedType = getFileType(file.type, file.name);
     const isTextOrEpub = detedctedType === 'TXT' || detedctedType === 'EPUB';
 
@@ -24,11 +25,17 @@ export default function FileRow({ file, index, onRemove }: FileRowProps) {
         <View
             style={[
                 styles.fileRow,
+                {
+                    backgroundColor: theme.surface,
+                    boxShadow: theme.bg === '#111111'
+                        ? '0px 1px 4px rgba(255,255,255,0.08)'
+                        : '-2px 2px 4px rgba(30,30,30,0.1)',
+                } as any,
                 file.state === 'error' && styles.fileRowError,
             ]}
         >
             <View style={styles.fileMeta}>
-                <View style={styles.fileIconWrap}>
+                <View style={[styles.fileIconWrap, { borderColor: theme.borderSubtle }]}>
                     {isTextOrEpub ? (
                         <FileIcon width={18} height={18} />
                     ) : (
@@ -36,9 +43,9 @@ export default function FileRow({ file, index, onRemove }: FileRowProps) {
                     )}
                 </View>
                 <View style={{ flex: 1 }}>
-                    <Text style={styles.fileName} numberOfLines={1}
+                    <Text style={[styles.fileName, { color: theme.text }]} numberOfLines={1}
                         ellipsizeMode="middle">{file.name}</Text>
-                    <Text style={styles.fileDetails}>
+                    <Text style={[styles.fileDetails, { color: theme.textSub }]}>
                         {file.size} • {file.type}
                     </Text>
                 </View>
@@ -52,8 +59,8 @@ export default function FileRow({ file, index, onRemove }: FileRowProps) {
                 ) : (
                     <>
                         <Text style={styles.badgeReady}>Ready</Text>
-                        <TouchableOpacity style={styles.close} onPress={() => onRemove(index)}>
-                            <CloseIcon width={8} height={8} />
+                        <TouchableOpacity style={[styles.close, { borderColor: theme.borderSubtle }]} onPress={() => onRemove(index)}>
+                            <CloseIcon width={8} height={8} color={theme.text} />
                         </TouchableOpacity>
                     </>
                 )}
@@ -67,17 +74,13 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        backgroundColor: '#FFFFFF',
         borderRadius: 12,
         borderWidth: 1,
         borderColor: 'transparent',
         paddingHorizontal: 12,
         paddingVertical: 10,
-        boxShadow: '-2px 2px 4px rgba(30, 30, 30, 0.1)',
     },
-    fileRowError: {
-        backgroundColor: '#FFFFFF',
-    },
+    fileRowError: {},
     fileMeta: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -91,18 +94,15 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         backgroundColor: 'transparent',
-        borderColor: '#CCCCCC',
         borderWidth: 0.5,
     },
     fileName: {
         fontSize: 12,
         fontFamily: 'Inter-Medium',
-        color: '#1E1E1E',
     },
     fileDetails: {
         fontSize: 10,
         fontFamily: 'Inter-Regular',
-        color: '#4C4C4C',
         marginTop: 2,
     },
 
@@ -137,7 +137,6 @@ const styles = StyleSheet.create({
         height: 20,
         justifyContent: 'center',
         alignItems: 'center',
-        borderColor: '#CCCCCC',
         borderWidth: 0.5,
         borderRadius: 4,
     },

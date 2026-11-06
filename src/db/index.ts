@@ -3,6 +3,8 @@ import * as SQLite from 'expo-sqlite';
 export type Book = {
   id: number;
   title: string;
+  author: string;
+  coverData: string | null; // base64 data URI, e.g. "data:image/jpeg;base64,..."
   format: 'epub' | 'txt';
   filePath: string;
   fileSize: number;
@@ -21,6 +23,7 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
 
 export async function initDb(): Promise<void> {
   const db = await getDb();
+
   await db.runAsync(
     'CREATE TABLE IF NOT EXISTS books (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, format TEXT NOT NULL, file_path TEXT NOT NULL UNIQUE, file_size INTEGER NOT NULL DEFAULT 0, total_words INTEGER NOT NULL DEFAULT 0, date_added INTEGER NOT NULL)'
   );
@@ -30,4 +33,14 @@ export async function initDb(): Promise<void> {
   await db.runAsync(
     'CREATE TABLE IF NOT EXISTS sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER, start_time INTEGER NOT NULL, end_time INTEGER, words_read INTEGER NOT NULL DEFAULT 0, avg_wpm REAL NOT NULL DEFAULT 0, mode TEXT NOT NULL DEFAULT "normal")'
   );
+
+  // Schema migrations via PRAGMA user_version
+  const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+  const version = row?.user_version ?? 0;
+
+  if (version < 1) {
+    await db.runAsync('ALTER TABLE books ADD COLUMN author TEXT NOT NULL DEFAULT ""');
+    await db.runAsync('ALTER TABLE books ADD COLUMN cover_data TEXT');
+    await db.runAsync('PRAGMA user_version = 1');
+  }
 }

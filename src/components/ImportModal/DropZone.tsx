@@ -1,5 +1,6 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { useMemo, useState } from 'react';
+import { useAppTheme } from '@/lib/appTheme';
 import {
     Pressable,
     StyleSheet,
@@ -62,6 +63,7 @@ const validateFileType = (mimeType?: string, fileName?: string): boolean => {
 };
 
 export default function DropZone({ files, onFilesChange }: DropZoneProps) {
+    const theme = useAppTheme();
     const [isDragging, setIsDragging] = useState(false);
 
     const hasFiles = files.length > 0;
@@ -127,8 +129,9 @@ export default function DropZone({ files, onFilesChange }: DropZoneProps) {
             <View
                 style={[
                     styles.dropZone,
-                    isDragging && styles.dropZoneActive,
-                    hasFiles && files.every((file) => file.state === 'error') && styles.dropZoneError,
+                    { backgroundColor: theme.surface, borderColor: theme.border },
+                    isDragging && { borderColor: '#5F7B72' },
+                    hasFiles && files.every((file) => file.state === 'error') && { borderColor: '#EF4444' },
                 ]}
                 onTouchStart={() => setIsDragging(true)}
                 onTouchEnd={() => setIsDragging(false)}
@@ -137,14 +140,14 @@ export default function DropZone({ files, onFilesChange }: DropZoneProps) {
                     {files.length === 0 || !files.every((file) => file.state === 'error') ? (
                         <>
                             <UploadFileIcon width={24} height={24} style={styles.uploadIcon} />
-                            <Text style={styles.dropText}>{dropZoneLabel}</Text>
-                            <Text style={styles.dropSubText}>or drag and drop it here</Text>
+                            <Text style={[styles.dropText, { color: theme.text }]}>{dropZoneLabel}</Text>
+                            <Text style={[styles.dropSubText, { color: theme.textSub }]}>or drag and drop it here</Text>
                         </>
                     ) : (
                         <>
                             <WrongFileIcon width={24} height={24} style={styles.uploadIcon} />
                             <Text style={styles.errorText}>Wrong file type</Text>
-                            <Text style={styles.dropSubText}>Drop an EPUB or TXT file</Text>
+                            <Text style={[styles.dropSubText, { color: theme.textSub }]}>Drop an EPUB or TXT file</Text>
                         </>
                     )}
                 </Pressable>
@@ -181,23 +184,15 @@ const styles = StyleSheet.create({
         minHeight: 150,
         borderWidth: 1,
         borderStyle: 'dashed',
-        borderColor: '#1E1E1E',
         borderRadius: 12,
-        backgroundColor: '#FFFFFF',
         justifyContent: 'center',
         alignItems: 'center',
         paddingVertical: 20,
         paddingHorizontal: 16,
         marginBottom: 12,
     },
-    dropZoneActive: {
-        borderColor: '#5F7B72',
-        backgroundColor: '#FFFFFF',
-    },
-    dropZoneError: {
-        borderColor: '#EF4444',
-        backgroundColor: '#FFFFFF',
-    },
+    dropZoneActive: {},
+    dropZoneError: {},
     uploadIcon: {
         marginBottom: 10,
     },
@@ -210,13 +205,11 @@ const styles = StyleSheet.create({
     dropText: {
         fontSize: 14,
         fontFamily: 'Inter-Medium',
-        color: '#1E1E1E',
         textAlign: 'center',
     },
     dropSubText: {
         fontSize: 10,
         fontFamily: 'Inter-Regular',
-        color: '#1E1E1E',
         textAlign: 'center',
     },
     fileList: {
