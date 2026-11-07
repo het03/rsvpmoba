@@ -9,7 +9,7 @@ export type FileEntry = {
     uri?: string;
 };
 
-const VALID_FILE_TYPES = ['EPUB', 'TXT', 'PDF'];
+const VALID_FILE_TYPES = ['EPUB', 'TXT'];
 
 export function getFileType(mimeType?: string, fileName?: string): string {
     if (fileName) {

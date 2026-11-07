@@ -97,7 +97,10 @@ function NavBar() {
   // Hide nav while reading — the reader has its own header + back button.
   if (pathname.startsWith('/reader/')) return null;
   return (
-    <View style={{ paddingHorizontal: 16, paddingBottom: 26, backgroundColor: theme.bg, alignItems: 'center' }}>
+    <View
+      pointerEvents="box-none"
+      style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingBottom: 26, alignItems: 'center' }}
+    >
       <Nav />
     </View>
   );

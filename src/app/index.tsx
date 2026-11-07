@@ -6,9 +6,10 @@ import ImportModal from '@/components/ImportModal/ImportModal';
 import { getDb, type Book } from '@/db';
 import { useAppTheme } from '@/lib/appTheme';
 import { webDeleteFile } from '@/lib/webFileStore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
-import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AddIcon from '../../assets/images/tabIcons/Add.svg';
@@ -16,6 +17,7 @@ import SearchIcon from '../../assets/images/tabIcons/Search.svg';
 
 // 2 columns on phones, 3 on tablets/landscape (width ≥ 600pt).
 const SPACING = 16;
+const NAV_CLEARANCE = 110;
 // Books at or above this progress fraction are shown in Completed.
 const COMPLETE_THRESHOLD = 0.9;
 
@@ -101,7 +103,7 @@ export default function Index() {
     })));
   }, []);
 
-  useEffect(() => { void loadBooks(); }, [loadBooks]);
+  useFocusEffect(useCallback(() => { void loadBooks(); }, [loadBooks]));
 
   // When searching: flat list; when browsing: split into sections.
   const searchActive = query.trim().length > 0;
@@ -134,6 +136,8 @@ export default function Index() {
     }
     const db = await getDb();
     await db.runAsync('DELETE FROM books WHERE id = ?', [book.id]);
+    await db.runAsync('DELETE FROM reading_positions WHERE book_id = ?', [book.id]);
+    AsyncStorage.removeItem(`epub_locs_${book.id}`).catch(() => {});
     setBooks(prev => prev.filter(b => b.id !== book.id));
   };
 
@@ -215,8 +219,8 @@ export default function Index() {
             )}
           </>
         )}
-        {/* Bottom breathing room above nav bar */}
-        <View style={{ height: SPACING }} />
+        {/* Clear the floating nav bar (64 + 26 padding) */}
+        <View style={{ height: NAV_CLEARANCE }} />
       </ScrollView>
 
       <ImportModal

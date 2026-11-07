@@ -1,4 +1,5 @@
 import { type ReaderPrefs, THEMES } from '@/lib/readerPrefs';
+import { SELECTION_MENU, type SelectionInfo } from '@/lib/selectionMenu';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import WebView, { WebViewMessageEvent } from 'react-native-webview';
@@ -12,7 +13,23 @@ type Props = {
   onWordIndex: (index: number) => void;
   onTotalWords: (count: number) => void;
   onSaveLocations: (data: string) => void;
+  highlight?: HighlightTarget | null;
+  // A selection-toolbox item was chosen; fraction (0–1) is where the selection sits in the book.
+  onSelectionAction?: (key: string, sel: SelectionInfo) => void;
+  // Platforms without a native selection toolbox (web) just report the selection.
+  onSelectionFallback?: (sel: SelectionInfo) => void;
 };
+
+// A word to jump to and briefly highlight when the reader opens (e.g. where RSVP stopped).
+export type HighlightTarget = {
+  href: string;        // chapter file
+  wordOffset: number;  // words from the start of that chapter
+  text: string;        // the word and a few after it, used to correct small offset drift
+};
+
+function toSelection(msg: any): SelectionInfo {
+  return { fraction: msg.percentage, text: msg.text ?? '', href: msg.href, wordOffset: msg.wordOffset };
+}
 
 // Position stored as percentage × 1000 (integer 0-1000) in the existing word_index column.
 const DENOM = 1000;
@@ -22,6 +39,7 @@ function buildHtml(
   prefs: ReaderPrefs,
   initialPct: number,
   cachedLocations: string | null,
+  highlight: HighlightTarget | null,
 ): string {
   const t = THEMES[prefs.theme];
   // jszip must load before epubjs (epubjs expects window.JSZip).
@@ -82,7 +100,148 @@ html, body { background: ${t.bg}; height: 100%; overflow: hidden; }
 
     var initialPct = ${initialPct};
     var ready = false;
+    var lastPct = initialPct;
     var cachedLocs = ${JSON.stringify(cachedLocations)};
+    var hl = ${JSON.stringify(highlight).replace(/</g, '\\u003c')};
+
+    function normText(w) { return w.toLowerCase().replace(/[^\\p{L}\\p{N}]/gu, ''); }
+    function normHref(s) {
+      s = String(s).split('#')[0];
+      try { s = decodeURIComponent(s); } catch (e) {}
+      var out = [];
+      s.split('/').forEach(function(p) { if (p === '..') out.pop(); else if (p && p !== '.') out.push(p); });
+      return out.join('/');
+    }
+    function findSpineItem(href) {
+      var want = normHref(href), items = book.spine.spineItems || [];
+      for (var i = 0; i < items.length; i++) {
+        var h = normHref(items[i].href);
+        if (h === want || h.endsWith(want) || want.endsWith(h)) return items[i];
+      }
+      return null;
+    }
+    // The words of a chapter, tokenized by the same rules as the app's RSVP text (htmlToText + split):
+    // <br> acts as a space, block elements end a paragraph, script/style/head are ignored, and words
+    // may span inline tags. Also returns where each piece of text sits so a word can be located in the DOM.
+    var BLOCKS = { P: 1, DIV: 1, H1: 1, H2: 1, H3: 1, H4: 1, H5: 1, H6: 1, LI: 1, BLOCKQUOTE: 1, TR: 1 };
+    function extractWords(doc) {
+      var text = '', segs = [];
+      function visit(n) {
+        if (n.nodeType === 3) {
+          segs.push({ node: n, at: text.length, len: n.nodeValue.length });
+          text += n.nodeValue;
+          return;
+        }
+        if (n.nodeType !== 1) return;
+        var tag = String(n.nodeName).toUpperCase();
+        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'HEAD') return;
+        if (tag === 'BR') { text += ' '; return; }
+        for (var c = n.firstChild; c; c = c.nextSibling) visit(c);
+        if (BLOCKS[tag]) text += '\\n\\n';
+      }
+      visit(doc.body);
+      var words = [], re = /\\S+/g, m;
+      while ((m = re.exec(text)) !== null) words.push({ s: m.index, e: m.index + m[0].length, t: m[0] });
+      return { text: text, segs: segs, words: words };
+    }
+    // Index of the word containing (or next after) the DOM point (node, offset).
+    function wordIndexAtPoint(ex, node, offset) {
+      var pos = ex.text.length;
+      var target = node, off = offset;
+      if (node.nodeType !== 3) {
+        // Element boundary: start from the child at that offset and descend to its first text node.
+        target = node.childNodes[offset] || null;
+        while (target && target.nodeType !== 3) target = target.firstChild || target.nextSibling;
+        off = 0;
+      }
+      if (target) {
+        for (var i = 0; i < ex.segs.length; i++) {
+          if (ex.segs[i].node === target) { pos = ex.segs[i].at + off; break; }
+        }
+      }
+      for (var w = 0; w < ex.words.length; w++) if (ex.words[w].e > pos) return w;
+      return Math.max(0, ex.words.length - 1);
+    }
+    // Wrap a word (which may span several text nodes) in highlight spans.
+    function wrapWord(doc, ex, w) {
+      var spans = [];
+      for (var i = 0; i < ex.segs.length; i++) {
+        var sg = ex.segs[i];
+        if (sg.at >= w.e) break;
+        var a = Math.max(w.s, sg.at), b = Math.min(w.e, sg.at + sg.len);
+        if (a >= b) continue;
+        var r = doc.createRange();
+        r.setStart(sg.node, a - sg.at);
+        r.setEnd(sg.node, b - sg.at);
+        var span = doc.createElement('span');
+        span.style.cssText = 'background:rgba(255,200,0,0.55);border-radius:3px;transition:background 0.9s ease;';
+        r.surroundContents(span);
+        spans.push(span);
+      }
+      return spans;
+    }
+    // Jump to a word (chapter + word offset, refined by matching its text), then flash a highlight on it.
+    function highlightAt(target) {
+      var item = findSpineItem(target.href);
+      if (!item) return Promise.reject(new Error('section not found'));
+      return rendition.display(item.href).then(function() {
+        var contents = rendition.getContents().filter(function(c) { return c.sectionIndex === item.index; })[0];
+        if (!contents) return;
+        var doc = contents.document;
+        var ex = extractWords(doc);
+        var words = ex.words;
+        words.forEach(function(x) { x.n = normText(x.t); });
+        if (!words.length) return;
+        var best = Math.min(words.length - 1, Math.max(0, target.wordOffset || 0));
+        var want = String(target.text || '').split(/\\s+/).map(normText).filter(Boolean);
+        if (want.length) {
+          var bestDist = Infinity, lo = Math.max(0, best - 150), hi = Math.min(words.length - 1, best + 150);
+          for (var i = lo; i <= hi; i++) {
+            if (words[i].n !== want[0]) continue;
+            var j = i + 1, ok = true;
+            for (var k = 1; k < want.length; k++) {
+              while (j < words.length && words[j].n === '') j++;
+              if (j >= words.length || words[j].n !== want[k]) { ok = false; break; }
+              j++;
+            }
+            if (ok && Math.abs(i - best) < bestDist) { bestDist = Math.abs(i - best); best = i; }
+          }
+        }
+        var spans = wrapWord(doc, ex, words[best]);
+        if (!spans.length) return;
+        spans[0].scrollIntoView({ block: 'center' });
+        setTimeout(function() { spans.forEach(function(s) { s.style.background = 'transparent'; }); }, 2600);
+        setTimeout(function() {
+          spans.forEach(function(s) {
+            var parent = s.parentNode;
+            if (!parent) return;
+            parent.replaceChild(doc.createTextNode(s.textContent), s);
+            parent.normalize();
+          });
+        }, 3600);
+      });
+    }
+
+    // Report where in the book the current text selection is, so native selection-menu
+    // actions (RSVP from here, later highlight/bookmark) know their position.
+    rendition.on('selected', function(cfiRange, contents) {
+      var pct = null;
+      try {
+        if (ready) pct = book.locations.percentageFromCfi(cfiRange);
+      } catch (err) {}
+      if (pct === null || typeof pct !== 'number' || isNaN(pct)) pct = lastPct;
+      var text = '';
+      try { text = String(contents.window.getSelection()).slice(0, 300); } catch (err) {}
+      // Chapter file + words into it, for an exact (not percentage-based) RSVP start.
+      var href = null, wordOffset = null;
+      try {
+        var sec = book.spine.get(contents.sectionIndex);
+        href = sec ? sec.href : null;
+        var range = contents.window.getSelection().getRangeAt(0);
+        wordOffset = wordIndexAtPoint(extractWords(contents.document), range.startContainer, range.startOffset);
+      } catch (err) {}
+      post({ type: 'selection', percentage: pct, cfiRange: cfiRange, text: text, href: href, wordOffset: wordOffset });
+    });
 
     book.ready.then(function() {
       if (cachedLocs) {
@@ -90,15 +249,19 @@ html, body { background: ${t.bg}; height: 100%; overflow: hidden; }
         book.locations.load(cachedLocs);
         ready = true;
         post({ type: 'wordCount', count: ${DENOM} });
-        if (initialPct > 0) {
-          var cfi = book.locations.cfiFromPercentage(initialPct);
-          rendition.display(cfi).then(hideStatus).catch(function() { rendition.display().then(hideStatus); });
-        } else {
-          rendition.display().then(hideStatus);
+        function displayPct() {
+          if (initialPct > 0) {
+            var cfi = book.locations.cfiFromPercentage(initialPct);
+            return rendition.display(cfi).catch(function() { return rendition.display(); });
+          }
+          return rendition.display();
         }
+        var started = hl ? highlightAt(hl).catch(function() { return displayPct(); }) : displayPct();
+        started.then(hideStatus).catch(function() { rendition.display().then(hideStatus); });
       } else {
         // First open: show first page immediately, generate locations in background.
-        rendition.display().then(hideStatus).catch(function(e) {
+        var first = hl ? highlightAt(hl).catch(function() { return rendition.display(); }) : rendition.display();
+        first.then(hideStatus).catch(function(e) {
           setStatus('Render error: ' + String(e));
           post({ type: 'error', message: String(e) });
         });
@@ -107,7 +270,7 @@ html, body { background: ${t.bg}; height: 100%; overflow: hidden; }
           post({ type: 'wordCount', count: ${DENOM} });
           var saved = book.locations.save();
           post({ type: 'saveLocations', data: saved });
-          if (initialPct > 0) {
+          if (initialPct > 0 && !hl) {
             var cfi = book.locations.cfiFromPercentage(initialPct);
             rendition.display(cfi);
           }
@@ -120,6 +283,7 @@ html, body { background: ${t.bg}; height: 100%; overflow: hidden; }
 
     rendition.on('relocated', function(loc) {
       if (ready && loc && loc.start) {
+        lastPct = loc.start.percentage || 0;
         post({ type: 'position', percentage: loc.start.percentage || 0 });
       }
     });
@@ -149,12 +313,13 @@ html, body { background: ${t.bg}; height: 100%; overflow: hidden; }
 
 // ─── Web (iframe) ─────────────────────────────────────────────────────────────
 
-function EpubReaderWeb({ epubSrc, cachedLocations, totalWords, initialWordIndex, prefs, onWordIndex, onTotalWords, onSaveLocations }: Props) {
+function EpubReaderWeb({ epubSrc, cachedLocations, totalWords, initialWordIndex, prefs, highlight, onWordIndex, onTotalWords, onSaveLocations, onSelectionFallback }: Props) {
   const iframeRef = useRef<any>(null);
   const initialPctRef = useRef(totalWords > 0 ? initialWordIndex / totalWords : 0);
   const cachedLocsRef = useRef(cachedLocations);
+  const highlightRef = useRef(highlight ?? null);
   const html = useMemo(
-    () => buildHtml(epubSrc, prefs, initialPctRef.current, cachedLocsRef.current),
+    () => buildHtml(epubSrc, prefs, initialPctRef.current, cachedLocsRef.current, highlightRef.current),
     [epubSrc], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const theme = THEMES[prefs.theme];
@@ -166,11 +331,12 @@ function EpubReaderWeb({ epubSrc, cachedLocations, totalWords, initialWordIndex,
         if (msg.type === 'position') onWordIndex(Math.round(msg.percentage * DENOM));
         else if (msg.type === 'wordCount') onTotalWords(msg.count);
         else if (msg.type === 'saveLocations') onSaveLocations(msg.data);
+        else if (msg.type === 'selection') onSelectionFallback?.(toSelection(msg));
       } catch {}
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [onWordIndex, onTotalWords, onSaveLocations]);
+  }, [onWordIndex, onTotalWords, onSaveLocations, onSelectionFallback]);
 
   useEffect(() => {
     const t = THEMES[prefs.theme];
@@ -194,13 +360,16 @@ function EpubReaderWeb({ epubSrc, cachedLocations, totalWords, initialWordIndex,
 
 // ─── Native (WebView) ─────────────────────────────────────────────────────────
 
-function EpubReaderNative({ epubSrc, cachedLocations, totalWords, initialWordIndex, prefs, onWordIndex, onTotalWords, onSaveLocations }: Props) {
+function EpubReaderNative({ epubSrc, cachedLocations, totalWords, initialWordIndex, prefs, highlight, onWordIndex, onTotalWords, onSaveLocations, onSelectionAction }: Props) {
   const webViewRef = useRef<WebView>(null);
+  // Latest selection reported by the page; the native menu callback only carries the text.
+  const lastSelectionRef = useRef<SelectionInfo | null>(null);
   const didLoadRef = useRef(false);
   const initialPctRef = useRef(totalWords > 0 ? initialWordIndex / totalWords : 0);
   const cachedLocsRef = useRef(cachedLocations);
+  const highlightRef = useRef(highlight ?? null);
   const html = useMemo(
-    () => buildHtml(epubSrc, prefs, initialPctRef.current, cachedLocsRef.current),
+    () => buildHtml(epubSrc, prefs, initialPctRef.current, cachedLocsRef.current, highlightRef.current),
     [epubSrc], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const theme = THEMES[prefs.theme];
@@ -219,8 +388,14 @@ function EpubReaderNative({ epubSrc, cachedLocations, totalWords, initialWordInd
       if (msg.type === 'position') onWordIndex(Math.round(msg.percentage * DENOM));
       else if (msg.type === 'wordCount') onTotalWords(msg.count);
       else if (msg.type === 'saveLocations') onSaveLocations(msg.data);
+      else if (msg.type === 'selection') lastSelectionRef.current = toSelection(msg);
     } catch {}
   }, [onWordIndex, onTotalWords, onSaveLocations]);
+
+  const handleMenuSelection = useCallback((e: { nativeEvent: { key: string } }) => {
+    const sel = lastSelectionRef.current;
+    if (sel) onSelectionAction?.(e.nativeEvent.key, sel);
+  }, [onSelectionAction]);
 
   const handleLoad = useCallback(() => { didLoadRef.current = true; }, []);
 
@@ -231,6 +406,8 @@ function EpubReaderNative({ epubSrc, cachedLocations, totalWords, initialWordInd
         source={{ html, baseUrl: 'file:///' }}
         style={styles.webview}
         onMessage={handleMessage}
+        menuItems={SELECTION_MENU}
+        onCustomMenuSelection={handleMenuSelection}
         onLoad={handleLoad}
         scrollEnabled
         showsVerticalScrollIndicator={false}

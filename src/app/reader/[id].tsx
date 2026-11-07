@@ -1,19 +1,23 @@
-import EpubReader from '@/components/Reader/EpubReader';
+import EpubReader, { type HighlightTarget } from '@/components/Reader/EpubReader';
 import ReaderTray from '@/components/Reader/ReaderTray';
 import TxtReader from '@/components/Reader/TxtReader';
+import RsvpReader from '@/components/Reader/RsvpReader';
 import ProgressBar from '@/components/Shared/ProgressBar';
 import { getDb, type Book } from '@/db';
+import { parseEpub } from '@/lib/epub';
 import { type ReaderPrefs, THEMES, loadPrefs } from '@/lib/readerPrefs';
 import { webGetFile } from '@/lib/webFileStore';
+import { findAnchor, findChapter, findNear, type RsvpAnchor } from '@/rsvp/anchor';
+import { htmlToText, tokenize, tokenizeChapters, type Tokens } from '@/rsvp/tokenize';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function ReaderScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, mode } = useLocalSearchParams<{ id: string; mode?: string }>();
   const router = useRouter();
 
   const [book, setBook] = useState<Book | null>(null);
@@ -21,6 +25,21 @@ export default function ReaderScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [trayOpen, setTrayOpen] = useState(false);
+
+  // RSVP state. readerKey remounts the normal reader so it resumes at the RSVP exit position.
+  const [rsvpTokens, setRsvpTokens] = useState<Tokens | null>(null);
+  const [rsvpOpen, setRsvpOpen] = useState(false);
+  const [rsvpLoading, setRsvpLoading] = useState(false);
+  const [readerKey, setReaderKey] = useState(0);
+  // Long-pressed spot (fraction of book) offered as an RSVP start; null when no pill is showing.
+  const [rsvpFrom, setRsvpFrom] = useState<{ fraction: number; anchor?: RsvpAnchor } | null>(null);
+  const rsvpChaptersRef = useRef<{ hrefs: string[]; starts: number[] } | null>(null);
+  // Word to scroll to and flash when the normal reader reopens after RSVP.
+  const [highlightWord, setHighlightWord] = useState<number | undefined>(undefined);
+  const [highlightEpub, setHighlightEpub] = useState<HighlightTarget | null>(null);
+  const [rsvpStart, setRsvpStart] = useState(0);
+  // True while opening straight into RSVP, so the normal reader never flashes.
+  const [launchingRsvp, setLaunchingRsvp] = useState(mode === 'rsvp');
 
   // TXT state
   const [txtContent, setTxtContent] = useState('');
@@ -43,6 +62,7 @@ export default function ReaderScreen() {
     };
   }, [epubSrc]);
 
+  const bookRef = useRef<Book | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestWordIndex = useRef(0);
 
@@ -99,6 +119,7 @@ export default function ReaderScreen() {
           dateAdded: r.date_added, totalWords: r.total_words,
         };
         setBook(b);
+        bookRef.current = b;
         setTotalWords(b.totalWords);
 
         // Load saved position
@@ -108,6 +129,13 @@ export default function ReaderScreen() {
         const resumeAt = posRows[0]?.word_index ?? 0;
         setWordIndex(resumeAt);
         latestWordIndex.current = resumeAt;
+
+        // Opening a book makes it the "current" one in the Reader tab.
+        await db.runAsync(
+          `INSERT INTO reading_positions (book_id, word_index, updated_at) VALUES (?, ?, ?)
+           ON CONFLICT(book_id) DO UPDATE SET updated_at = excluded.updated_at`,
+          [b.id, resumeAt, Date.now()]
+        );
 
         if (Platform.OS === 'web') {
           const buf = await webGetFile(b.filePath);
@@ -151,7 +179,7 @@ export default function ReaderScreen() {
     return () => {
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
-        if (book) savePosition(book.id, latestWordIndex.current);
+        if (bookRef.current) savePosition(bookRef.current.id, latestWordIndex.current);
       }
     };
   }, [id]);
@@ -166,6 +194,101 @@ export default function ReaderScreen() {
   }, [trayOpen]);
 
   const progress = totalWords > 0 ? Math.min(1, wordIndex / totalWords) : 0;
+
+  // fromFraction is an approximate book position; anchor (a selection) pins it to the exact word.
+  const startRsvp = async (fromFraction?: number, anchor?: RsvpAnchor) => {
+    if (!book || rsvpLoading) return;
+    setTrayOpen(false);
+    let tokens = rsvpTokens;
+    if (!tokens) {
+      setRsvpLoading(true);
+      try {
+        let built: Tokens;
+        if (book.format === 'txt') {
+          built = tokenize(txtContent);
+        } else {
+          const buf = Platform.OS === 'web' ? await webGetFile(book.filePath) : undefined;
+          const { chapters, hrefs } = await parseEpub(book.filePath, buf ?? undefined);
+          const chapterized = tokenizeChapters(chapters.map(htmlToText));
+          rsvpChaptersRef.current = { hrefs, starts: chapterized.starts };
+          built = chapterized.tokens;
+        }
+        if (built.words.length === 0) throw new Error('No readable text in this book');
+        tokens = built;
+        setRsvpTokens(built);
+      } catch (e: any) {
+        console.warn('RSVP prepare failed:', e);
+        setLaunchingRsvp(false);
+        setRsvpFrom(null);
+        return;
+      } finally {
+        setRsvpLoading(false);
+      }
+    }
+    const frac = Math.min(1, Math.max(0, fromFraction ?? progress));
+    const chapters = rsvpChaptersRef.current;
+    const chapter = chapters && anchor?.href ? findChapter(chapters.hrefs, anchor.href) : -1;
+    let idx: number;
+    if (typeof anchor?.wordIndex === 'number') {
+      // Plain text: the reader page already knows the exact word.
+      idx = anchor.wordIndex;
+    } else if (chapters && chapter >= 0 && typeof anchor?.wordOffset === 'number') {
+      // Exact chapter + word offset: only a short search is needed to absorb markup differences.
+      const est = chapters.starts[chapter] + anchor.wordOffset;
+      idx = anchor.text ? findNear(tokens.words, est, anchor.text, 150) : est;
+    } else if (anchor?.text) {
+      idx = findAnchor(tokens.words, frac, anchor.text);
+    } else {
+      idx = Math.round(frac * tokens.words.length);
+    }
+    idx = Math.min(tokens.words.length - 1, Math.max(0, idx));
+    setRsvpStart(idx / tokens.words.length);
+    setRsvpFrom(null);
+    setRsvpOpen(true);
+  };
+
+  useEffect(() => {
+    if (rsvpFrom === null || rsvpLoading) return;
+    const t = setTimeout(() => setRsvpFrom(null), 5000);
+    return () => clearTimeout(t);
+  }, [rsvpFrom, rsvpLoading]);
+
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (mode !== 'rsvp' || autoStarted.current || loading || !book || error) return;
+    autoStarted.current = true;
+    void startRsvp();
+  });
+
+  const exitRsvp = useCallback((fraction: number, wordIndexAtExit: number) => {
+    if (!book) return;
+    // Tell the reopened reader which word RSVP stopped on so it can scroll there and flash it.
+    if (book.format === 'txt') {
+      setHighlightWord(wordIndexAtExit);
+    } else {
+      const chapters = rsvpChaptersRef.current;
+      if (chapters && rsvpTokens) {
+        let c = 0;
+        for (let i = 0; i < chapters.starts.length; i++) {
+          if (chapters.starts[i] <= wordIndexAtExit) c = i;
+          else break;
+        }
+        setHighlightEpub({
+          href: chapters.hrefs[c],
+          wordOffset: wordIndexAtExit - chapters.starts[c],
+          text: rsvpTokens.words.slice(wordIndexAtExit, wordIndexAtExit + 4).join(' '),
+        });
+      }
+    }
+    const idx = Math.round(fraction * (book.format === 'epub' ? 1000 : totalWords));
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    latestWordIndex.current = idx;
+    setWordIndex(idx);
+    savePosition(book.id, idx);
+    setReaderKey(k => k + 1);
+    setLaunchingRsvp(false);
+    setRsvpOpen(false);
+  }, [book, totalWords, savePosition, rsvpTokens]);
 
   if (loading) {
     return (
@@ -189,8 +312,21 @@ export default function ReaderScreen() {
 
   const theme = THEMES[prefs.theme];
 
+  // Block iOS swipe-back while RSVP is up; it would bypass RSVP's own exit and lose the position.
+  const lockSwipeBack = <Stack.Screen options={{ gestureEnabled: !(rsvpOpen || launchingRsvp) }} />;
+
+  if (launchingRsvp && !rsvpOpen) {
+    return (
+      <SafeAreaView style={[styles.center, { backgroundColor: theme.bg }]}>
+        {lockSwipeBack}
+        <ActivityIndicator color={theme.fg} />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
+      {lockSwipeBack}
       {/* Header */}
       <SafeAreaView edges={['top']} style={[styles.header, { backgroundColor: theme.bg, borderColor: `${theme.fg}18` }]}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerBtn} hitSlop={12}>
@@ -219,23 +355,30 @@ export default function ReaderScreen() {
         />
       )}
 
-      {/* Content */}
-      {book.format === 'txt' ? (
+      {/* Content — unmounted while RSVP is open so native selection handles can't linger over it */}
+      {rsvpOpen ? null : book.format === 'txt' ? (
         <TxtReader
+          key={readerKey}
           content={txtContent}
-          totalWords={totalWords}
           initialWordIndex={wordIndex}
           prefs={prefs}
           onWordIndex={handleWordIndex}
+          highlightWord={highlightWord}
+          onSelectionAction={(key, sel) => { if (key === 'rsvp') void startRsvp(sel.fraction, sel); }}
+          onSelectionFallback={sel => setRsvpFrom({ fraction: sel.fraction, anchor: sel })}
         />
       ) : (
         <EpubReader
+          key={readerKey}
           epubSrc={epubSrc}
           cachedLocations={epubCachedLocsRef.current}
           totalWords={totalWords}
           initialWordIndex={wordIndex}
           prefs={prefs}
           onWordIndex={handleWordIndex}
+          highlight={highlightEpub}
+          onSelectionAction={(key, sel) => { if (key === 'rsvp') void startRsvp(sel.fraction, sel); }}
+          onSelectionFallback={sel => setRsvpFrom({ fraction: sel.fraction, anchor: sel })}
           onTotalWords={handleTotalWords}
           onSaveLocations={(data) => book && AsyncStorage.setItem(`epub_locs_${book.id}`, data).catch(() => {})}
         />
@@ -248,6 +391,31 @@ export default function ReaderScreen() {
         onChange={setPrefs}
         onClose={() => setTrayOpen(false)}
       />
+
+      {rsvpFrom !== null && !rsvpOpen && !trayOpen && (
+        <View style={styles.fromPillWrap} pointerEvents="box-none">
+          <TouchableOpacity
+            onPress={() => startRsvp(rsvpFrom.fraction, rsvpFrom.anchor)}
+            activeOpacity={0.85}
+            style={[styles.fromPill, { backgroundColor: theme.fg }]}
+          >
+            {rsvpLoading && <ActivityIndicator size="small" color={theme.bg} />}
+            <Text style={[styles.fromPillText, { color: theme.bg }]}>
+              {rsvpLoading ? 'Preparing…' : 'RSVP from here'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {rsvpOpen && rsvpTokens && (
+        <RsvpReader
+          bookId={book.id}
+          tokens={rsvpTokens}
+          startFraction={rsvpStart}
+          prefs={prefs}
+          onExit={exitRsvp}
+        />
+      )}
     </View>
   );
 }
@@ -311,10 +479,35 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#1E1E1E',
   },
+  fromPillWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 40,
+    alignItems: 'center',
+    zIndex: 15,
+  },
+  fromPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    borderRadius: 24,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  fromPillText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 13,
+  },
   headerTitle: {
     flex: 1,
-    fontFamily: 'Inter-Medium',
-    fontSize: 13,
+    fontFamily: 'Fraunces-Regular',
+    fontSize: 15,
     color: '#1E1E1E',
     textAlign: 'center',
     paddingHorizontal: 8,

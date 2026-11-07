@@ -120,10 +120,10 @@ const styles = StyleSheet.create({
 
   // ── Spine (no cover) variant ──
   spineTitle: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 11,
+    fontFamily: 'Fraunces-Regular',
+    fontSize: 13,
     color: '#FFFFFF',
-    lineHeight: 15,
+    lineHeight: 17,
     flex: 1,
     padding: 10,
   },

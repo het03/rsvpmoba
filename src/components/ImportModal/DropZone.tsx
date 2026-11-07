@@ -106,7 +106,7 @@ export default function DropZone({ files, onFilesChange }: DropZoneProps) {
                 <Pressable onPress={handlePickFiles} style={{ flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' }}>
                     {files.length === 0 || !files.every((file) => file.state === 'error') ? (
                         <>
-                            <UploadFileIcon width={24} height={24} style={styles.uploadIcon} />
+                            <UploadFileIcon width={24} height={24} color={theme.text} style={styles.uploadIcon} />
                             <Text style={[styles.dropText, { color: theme.text }]}>{dropZoneLabel}</Text>
                             <Text style={[styles.dropSubText, { color: theme.textSub }]}>or drag and drop it here</Text>
                         </>

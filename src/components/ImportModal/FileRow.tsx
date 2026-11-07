@@ -37,7 +37,7 @@ export default function FileRow({ file, index, onRemove }: FileRowProps) {
             <View style={styles.fileMeta}>
                 <View style={[styles.fileIconWrap, { borderColor: theme.borderSubtle }]}>
                     {isTextOrEpub ? (
-                        <FileIcon width={18} height={18} />
+                        <FileIcon width={18} height={18} color={theme.text} />
                     ) : (
                         <WrongFileIcon width={18} height={18} />
                     )}

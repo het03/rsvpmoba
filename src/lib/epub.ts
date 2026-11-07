@@ -4,8 +4,23 @@ import { Platform } from 'react-native';
 
 export type EpubData = {
   chapters: string[];
+  hrefs: string[]; // zip-relative path of each chapter, aligned with `chapters`
   title: string;
 };
+
+function safeDecode(s: string): string {
+  try { return decodeURIComponent(s); } catch { return s; }
+}
+
+// Joins a spine href onto the OPF directory, resolving "." and ".." segments.
+function resolveZipPath(dir: string, href: string): string {
+  const out: string[] = [];
+  for (const part of (dir + href).split('/')) {
+    if (part === '..') out.pop();
+    else if (part && part !== '.') out.push(part);
+  }
+  return out.join('/');
+}
 
 function arrayBufferToBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);
@@ -61,14 +76,20 @@ export async function parseEpub(filePath: string, webBuffer?: ArrayBuffer): Prom
   while ((m = sRe.exec(opfXml)) !== null) spineIds.push(m[1]);
 
   const chapters: string[] = [];
+  const hrefs: string[] = [];
   for (const id of spineIds) {
     const href = manifest[id];
     if (!href) continue;
-    const filePart = href.split('#')[0];
-    const fullPath = opfDir + filePart;
-    const html = await zip.file(fullPath)?.async('text');
-    if (html) chapters.push(html);
+    const fullPath = resolveZipPath(opfDir, href.split('#')[0]);
+    // Hrefs may be percent-encoded ("My%20Chapter.xhtml") while the zip entry is not.
+    const entry = zip.file(fullPath) ?? zip.file(safeDecode(fullPath));
+    const html = await entry?.async('text');
+    if (html) {
+      chapters.push(html);
+      // Stored relative to the OPF directory so it lines up with epub.js spine hrefs.
+      hrefs.push(resolveZipPath('', safeDecode(href.split('#')[0])));
+    }
   }
 
-  return { chapters, title };
+  return { chapters, hrefs, title };
 }

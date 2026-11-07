@@ -17,7 +17,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     text: {
-        fontSize: 24,
-        fontWeight: '600',
+        fontFamily: 'Fraunces-Regular',
+        fontSize: 26,
     },
 });
