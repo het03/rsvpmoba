@@ -9,17 +9,18 @@ import { webDeleteFile } from '@/lib/webFileStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Easing, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AddIcon from '../../assets/images/tabIcons/Add.svg';
 import SearchIcon from '../../assets/images/tabIcons/Search.svg';
 
 // 2 columns on phones, 3 on tablets/landscape (width ≥ 600pt).
 const SPACING = 16;
 const NAV_CLEARANCE = 110;
-// Books at or above this progress fraction are shown in Completed.
-const COMPLETE_THRESHOLD = 0.9;
+// Books at or above this progress fraction are shown in Completed. The readers report exactly 100%
+// only when you reach the very end, so this is just short of that to absorb rounding.
+const COMPLETE_THRESHOLD = 0.999;
 
 type BookWithProgress = Book & { progress: number };
 
@@ -64,10 +65,39 @@ const sectionStyles = StyleSheet.create({
 export default function Index() {
   const theme = useAppTheme();
   const router = useRouter();
-  const { width: screenWidth } = useWindowDimensions();
-  const cols = screenWidth >= 600 ? 3 : 2;
-  const cardWidth = Math.floor((screenWidth - SPACING * (cols + 1)) / cols);
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const landscape = screenWidth > screenHeight;
+  // Columns come from the width the shelf actually has (landscape loses the nav rail's width), so the
+  // covers always fill the row exactly; smaller target covers in landscape since the screen is short.
+  const insets = useSafeAreaInsets();
+  // Right after a rotation the measured width is still the old one. Until the new measurement arrives, work
+  // out the width from the window size, the nav rail (landscape) and the safe-area insets, so the covers
+  // don't lay out once at the old size and then jump.
+  const railWidth = 12 + insets.left + 64 + 8;
+  const estimatedWidth = landscape
+    ? screenWidth - railWidth - insets.right
+    : screenWidth - insets.left - insets.right;
+  const [measured, setMeasured] = useState({ width: screenWidth, forWindow: screenWidth });
+  const gridWidth = measured.forWindow === screenWidth ? measured.width : estimatedWidth;
+  const targetCard = landscape ? 120 : 150;
+  const cols = Math.max(2, Math.floor((gridWidth - SPACING) / (targetCard + SPACING)));
+  const cardWidth = Math.floor((gridWidth - SPACING * (cols + 1)) / cols);
   const cardHeight = Math.floor(cardWidth * 1.5);
+
+  // Rotating changes the column count and every cover's size in a single frame. Fade the grid back in
+  // when that happens so the new arrangement settles in instead of snapping.
+  const gridFade = useRef(new Animated.Value(1)).current;
+  const firstLayout = useRef(true);
+  useLayoutEffect(() => {
+    if (firstLayout.current) { firstLayout.current = false; return; }
+    gridFade.setValue(0.15);
+    Animated.timing(gridFade, {
+      toValue: 1,
+      duration: 320,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [cols, landscape, gridFade]);
 
   const [books, setBooks] = useState<BookWithProgress[]>([]);
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -138,6 +168,7 @@ export default function Index() {
     await db.runAsync('DELETE FROM books WHERE id = ?', [book.id]);
     await db.runAsync('DELETE FROM reading_positions WHERE book_id = ?', [book.id]);
     AsyncStorage.removeItem(`epub_locs_${book.id}`).catch(() => {});
+    AsyncStorage.removeItem(`rsvp_pos_${book.id}`).catch(() => {});
     setBooks(prev => prev.filter(b => b.id !== book.id));
   };
 
@@ -154,7 +185,11 @@ export default function Index() {
   );
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: theme.bg }]}>
+    <SafeAreaView
+      style={[styles.screen, { backgroundColor: theme.bg }]}
+      // In landscape the nav rail already handles the left edge's inset.
+      edges={landscape ? ['top', 'right', 'bottom'] : ['top', 'right', 'bottom', 'left']}
+    >
       {/* Header */}
       <View style={styles.header}>
         <GreetingHeader title="Your shelf" />
@@ -189,7 +224,8 @@ export default function Index() {
         </View>
       )}
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <Animated.View style={{ flex: 1, opacity: gridFade }}>
+      <ScrollView showsVerticalScrollIndicator={false} onLayout={e => setMeasured({ width: e.nativeEvent.layout.width, forWindow: screenWidth })}>
         {searchActive ? (
           /* Flat search results */
           <View style={styles.grid}>
@@ -220,8 +256,10 @@ export default function Index() {
           </>
         )}
         {/* Clear the floating nav bar (64 + 26 padding) */}
-        <View style={{ height: NAV_CLEARANCE }} />
+        {/* Portrait: clear the floating nav bar. Landscape: the nav is a side rail, so no clearance needed. */}
+        <View style={{ height: landscape ? SPACING : NAV_CLEARANCE }} />
       </ScrollView>
+      </Animated.View>
 
       <ImportModal
         visible={isImportOpen}

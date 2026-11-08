@@ -1,5 +1,11 @@
-const SENTENCE_END = /[.!?…]["'”’)\]]*$/;
-const CLAUSE_END = /[,;:—–]["'”’)\]]*$/;
+// Closing quotes and brackets that can trail punctuation, across scripts: " ' ” ’ “ ‘ » › 」 』 ） ) ] 】 〕 〉 》
+// (“ and ‘ close quotes in German and some other languages.)
+const CLOSERS = `"'”’“‘»›」』）)\\]】〕〉》`;
+// Sentence enders: Latin . ! ? …, CJK 。！？, Arabic/Urdu ؟ ۔, Devanagari । ॥, Armenian ։, Ethiopic ።
+const SENTENCE_END = new RegExp(`[.!?…。！？؟۔।॥։።][${CLOSERS}]*$`);
+// Clause breaks: , ; : — – plus CJK ，、；： and Arabic ، ؛
+const CLAUSE_END = new RegExp(`[,;:—–，、；：،؛][${CLOSERS}]*$`);
+const TRAILING_CLOSERS = new RegExp(`[${CLOSERS}]+$`);
 
 // Periods after these don't end a sentence ("Dr. Smith", "e.g. this").
 const ABBREVIATIONS = new Set([
@@ -18,7 +24,7 @@ function isAbbreviation(stem: string): boolean {
 
 export function isSentenceEnd(word: string): boolean {
   if (!SENTENCE_END.test(word)) return false;
-  const core = word.replace(/["'”’)\]]+$/, '');
+  const core = word.replace(TRAILING_CLOSERS, '');
   if (!core.endsWith('.') || core.endsWith('...')) return true;
   return !isAbbreviation(core.slice(0, -1));
 }

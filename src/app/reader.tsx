@@ -26,16 +26,22 @@ function RsvpDemo({ color }: { color: string }) {
   const o = orpIndex(w);
   const style = { color, fontFamily: 'Fraunces-Regular', fontSize: 22 };
   return (
-    <View style={demoStyles.row}>
-      <View style={demoStyles.left}><Text style={style} numberOfLines={1}>{w.slice(0, o)}</Text></View>
-      <Text style={[style, { color: ORP_COLOR, fontFamily: 'Fraunces-Bold' }]}>{w[o]}</Text>
-      <View style={demoStyles.right}><Text style={style} numberOfLines={1}>{w.slice(o + 1)}</Text></View>
+    <View style={demoStyles.wrap}>
+      <View style={[demoStyles.tick, { backgroundColor: color }]} />
+      <View style={demoStyles.row}>
+        <View style={demoStyles.left}><Text style={style} numberOfLines={1}>{w.slice(0, o)}</Text></View>
+        <Text style={[style, { color: ORP_COLOR, fontFamily: 'Fraunces-Bold' }]}>{w[o]}</Text>
+        <View style={demoStyles.right}><Text style={style} numberOfLines={1}>{w.slice(o + 1)}</Text></View>
+      </View>
+      <View style={[demoStyles.tick, { backgroundColor: color }]} />
     </View>
   );
 }
 
 const demoStyles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', width: '100%', height: 36 },
+  wrap: { width: '100%', alignItems: 'center', gap: 2 },
+  tick: { width: 1.5, height: 9, opacity: 0.25 },
+  row: { flexDirection: 'row', alignItems: 'center', width: '100%', height: 32 },
   left: { flex: 1, alignItems: 'flex-end' },
   right: { flex: 1, alignItems: 'flex-start' },
 });
@@ -43,7 +49,8 @@ const demoStyles = StyleSheet.create({
 export default function ReaderTab() {
   const theme = useAppTheme();
   const router = useRouter();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
+  const landscape = width > height;
   const [books, setBooks] = useState<RecentBook[] | null>(null);
   const [wpm, setWpm] = useState<number | null>(null);
 
@@ -83,8 +90,16 @@ export default function ReaderTab() {
     router.push((mode ? `/reader/${id}?mode=${mode}` : `/reader/${id}`) as any);
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: theme.bg }]}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+    <SafeAreaView
+      style={[styles.screen, { backgroundColor: theme.bg }]}
+      // In landscape the nav rail already handles the left edge's inset.
+      edges={landscape ? ['top', 'right', 'bottom'] : ['top', 'right', 'bottom', 'left']}
+    >
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        // Portrait leaves room for the floating nav bar; landscape's nav is a side rail.
+        contentContainerStyle={[styles.content, landscape && { paddingBottom: 24 }]}
+      >
         <Text style={[styles.heading, { color: theme.text }]}>Continue reading</Text>
 
         {books === null ? null : !current ? (

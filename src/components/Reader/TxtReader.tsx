@@ -1,7 +1,7 @@
 import { type ReaderPrefs, THEMES } from '@/lib/readerPrefs';
 import { SELECTION_MENU, type SelectionInfo } from '@/lib/selectionMenu';
 import { splitParagraphs } from '@/rsvp/tokenize';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import WebView, { WebViewMessageEvent } from 'react-native-webview';
 
@@ -12,6 +12,8 @@ type Props = {
   onWordIndex: (index: number) => void;
   // Exact word index to scroll to and briefly highlight on open (e.g. where RSVP stopped).
   highlightWord?: number;
+  // Jump request from the scrubber; `nonce` makes repeated seeks to the same spot distinct.
+  seek?: { fraction: number; nonce: number } | null;
   // A selection-toolbox item was chosen (native).
   onSelectionAction?: (key: string, sel: SelectionInfo) => void;
   // Platforms without a native selection toolbox (web) just report the selection.
@@ -100,7 +102,8 @@ p { margin: 0 0 1em; white-space: pre-wrap; overflow-wrap: anywhere; }
   function currentWord() {
     if (!paras.length) return 0;
     var sc = scroller(), y = sc.scrollTop;
-    if (y + window.innerHeight >= sc.scrollHeight - 2) return Math.max(0, TOTAL - 1);
+    // Scrolled to the very bottom: report the end of the book (100%), so the book counts as finished.
+    if (y + window.innerHeight >= sc.scrollHeight - 2) return TOTAL;
     var lo = 0, hi = paras.length - 1, ans = 0;
     while (lo <= hi) {
       var mid = (lo + hi) >> 1;
@@ -152,7 +155,7 @@ p { margin: 0 0 1em; white-space: pre-wrap; overflow-wrap: anywhere; }
     scrollTimer = setTimeout(function() {
       scrollTimer = null;
       post({ type: 'position', wordIndex: currentWord() });
-    }, 150);
+    }, 90);
   }, { passive: true });
 
   // Report the selection's exact word index so toolbox actions know where it starts.
@@ -191,10 +194,16 @@ p { margin: 0 0 1em; white-space: pre-wrap; overflow-wrap: anywhere; }
     document.body.style.lineHeight = String(lineHeight);
     if (paras.length) scroller().scrollTop = yForWord(w);
   };
+  window.__seekTo = function(fraction) {
+    if (!paras.length) return;
+    var f = Math.min(1, Math.max(0, fraction));
+    scroller().scrollTop = yForWord(Math.round(f * Math.max(0, TOTAL - 1)));
+  };
   window.addEventListener('message', function(e) {
     try {
       var msg = JSON.parse(e.data);
       if (msg.type === 'updateStyle') window.__updateStyle(msg.bg, msg.fg, msg.fontSize, msg.lineHeight);
+      else if (msg.type === 'seek') window.__seekTo(msg.fraction);
     } catch (err) {}
   });
 })();
@@ -205,8 +214,14 @@ p { margin: 0 0 1em; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 // ─── Web (iframe) ─────────────────────────────────────────────────────────────
 
-function TxtReaderWeb({ content, initialWordIndex, prefs, highlightWord, onWordIndex, onSelectionFallback }: Props) {
+function TxtReaderWeb({ content, initialWordIndex, prefs, highlightWord, seek, onWordIndex, onSelectionFallback }: Props) {
   const iframeRef = useRef<any>(null);
+  const handledSeek = useRef(seek?.nonce ?? 0);
+  useEffect(() => {
+    if (!seek || seek.nonce === handledSeek.current) return;
+    handledSeek.current = seek.nonce;
+    iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ type: 'seek', fraction: seek.fraction }), '*');
+  }, [seek]);
   const initialRef = useRef({ word: initialWordIndex, highlight: highlightWord });
   const html = useMemo(
     () => buildHtml(splitParagraphs(content), prefs, initialRef.current.word, initialRef.current.highlight),
@@ -248,9 +263,15 @@ function TxtReaderWeb({ content, initialWordIndex, prefs, highlightWord, onWordI
 
 // ─── Native (WebView) ─────────────────────────────────────────────────────────
 
-function TxtReaderNative({ content, initialWordIndex, prefs, highlightWord, onWordIndex, onSelectionAction }: Props) {
+function TxtReaderNative({ content, initialWordIndex, prefs, highlightWord, seek, onWordIndex, onSelectionAction }: Props) {
   const webViewRef = useRef<WebView>(null);
   const didLoadRef = useRef(false);
+  const handledSeek = useRef(seek?.nonce ?? 0);
+  useEffect(() => {
+    if (!seek || seek.nonce === handledSeek.current || !didLoadRef.current) return;
+    handledSeek.current = seek.nonce;
+    webViewRef.current?.injectJavaScript(`window.__seekTo && window.__seekTo(${seek.fraction}); true;`);
+  }, [seek]);
   // The native menu callback only carries the selected text, so keep the latest reported selection.
   const lastSelectionRef = useRef<SelectionInfo | null>(null);
   const initialRef = useRef({ word: initialWordIndex, highlight: highlightWord });
@@ -302,10 +323,11 @@ function TxtReaderNative({ content, initialWordIndex, prefs, highlightWord, onWo
 
 // ─── Export ───────────────────────────────────────────────────────────────────
 
-export default function TxtReader(props: Props) {
+// Memoized so the screen's frequent progress updates don't re-render the page.
+export default memo(function TxtReader(props: Props) {
   if (Platform.OS === 'web') return <TxtReaderWeb {...props} />;
   return <TxtReaderNative {...props} />;
-}
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

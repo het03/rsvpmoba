@@ -59,15 +59,16 @@ export async function parseEpub(filePath: string, webBuffer?: ArrayBuffer): Prom
   const titleMatch = opfXml.match(/<dc:title[^>]*>([^<]+)<\/dc:title>/i);
   const title = titleMatch ? titleMatch[1].trim() : '';
 
-  // Manifest: id → href
-  const manifest: Record<string, string> = {};
+  // Manifest: id → href and media type
+  const manifest: Record<string, { href: string; mime: string }> = {};
   const mRe = /<item\b([^>]+)>/gi;
   let m: RegExpExecArray | null;
   while ((m = mRe.exec(opfXml)) !== null) {
     const attrs = m[1];
     const idM = attrs.match(/\bid="([^"]+)"/);
     const hrefM = attrs.match(/\bhref="([^"]+)"/);
-    if (idM && hrefM) manifest[idM[1]] = hrefM[1];
+    const mimeM = attrs.match(/\bmedia-type="([^"]+)"/);
+    if (idM && hrefM) manifest[idM[1]] = { href: hrefM[1], mime: mimeM?.[1] ?? '' };
   }
 
   // Spine order
@@ -78,8 +79,12 @@ export async function parseEpub(filePath: string, webBuffer?: ArrayBuffer): Prom
   const chapters: string[] = [];
   const hrefs: string[] = [];
   for (const id of spineIds) {
-    const href = manifest[id];
-    if (!href) continue;
+    const item = manifest[id];
+    if (!item) continue;
+    // The reading order can list non-text items (a cover image, for example). Decoding those as text
+    // produces garbage "words", so only read HTML/XML documents.
+    if (item.mime && !/html|xml/i.test(item.mime)) continue;
+    const href = item.href;
     const fullPath = resolveZipPath(opfDir, href.split('#')[0]);
     // Hrefs may be percent-encoded ("My%20Chapter.xhtml") while the zip entry is not.
     const entry = zip.file(fullPath) ?? zip.file(safeDecode(fullPath));

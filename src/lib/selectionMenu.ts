@@ -1,6 +1,7 @@
 // Actions shown in the text-selection toolbox. Add highlight, bookmark, etc. here.
 export const SELECTION_MENU = [
-  { key: 'rsvp', label: 'RSVP from here' },
+  // The system menu only shows plain text, so "RSVP" is bolded with Unicode bold letters.
+  { key: 'rsvp', label: '\u{1D5E5}\u{1D5E6}\u{1D5E9}\u{1D5E3} from here' },
 ];
 
 // Where a text selection sits, as reported by a reader page.

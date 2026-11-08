@@ -1,7 +1,7 @@
 import { type ReaderPrefs, THEMES } from '@/lib/readerPrefs';
 import { SELECTION_MENU, type SelectionInfo } from '@/lib/selectionMenu';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import { Linking, Platform, StyleSheet, View } from 'react-native';
 import WebView, { WebViewMessageEvent } from 'react-native-webview';
 
 type Props = {
@@ -14,6 +14,8 @@ type Props = {
   onTotalWords: (count: number) => void;
   onSaveLocations: (data: string) => void;
   highlight?: HighlightTarget | null;
+  // Jump request from the scrubber; `nonce` makes repeated seeks to the same spot distinct.
+  seek?: { fraction: number; nonce: number } | null;
   // A selection-toolbox item was chosen; fraction (0–1) is where the selection sits in the book.
   onSelectionAction?: (key: string, sel: SelectionInfo) => void;
   // Platforms without a native selection toolbox (web) just report the selection.
@@ -26,6 +28,13 @@ export type HighlightTarget = {
   wordOffset: number;  // words from the start of that chapter
   text: string;        // the word and a few after it, used to correct small offset drift
 };
+
+// Open a link from the book in the device browser. Only web links and email are allowed.
+function openExternal(url: unknown) {
+  if (typeof url !== 'string' || !/^(https?:|mailto:)/i.test(url)) return;
+  if (Platform.OS === 'web') window.open(url, '_blank', 'noopener,noreferrer');
+  else Linking.openURL(url).catch(() => {});
+}
 
 function toSelection(msg: any): SelectionInfo {
   return { fraction: msg.percentage, text: msg.text ?? '', href: msg.href, wordOffset: msg.wordOffset };
@@ -87,6 +96,7 @@ html, body { background: ${t.bg}; height: 100%; overflow: hidden; }
       width: '100%',
       height: '100%',
       spread: 'none',
+      offset: 1500, // pixels of neighbouring text kept loaded; the default (500) is outrun by fast scrolling
     });
 
     rendition.themes.override('color', '${t.fg}');
@@ -134,7 +144,7 @@ html, body { background: ${t.bg}; height: 100%; overflow: hidden; }
         }
         if (n.nodeType !== 1) return;
         var tag = String(n.nodeName).toUpperCase();
-        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'HEAD') return;
+        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'HEAD' || tag === 'SVG') return;
         if (tag === 'BR') { text += ' '; return; }
         for (var c = n.firstChild; c; c = c.nextSibling) visit(c);
         if (BLOCKS[tag]) text += '\\n\\n';
@@ -222,6 +232,72 @@ html, body { background: ${t.bg}; height: 100%; overflow: hidden; }
       });
     }
 
+    // Dark-theme readability fixes (active only when the theme defines a link color):
+    // lighter hyperlinks, and list text that books often hardcode as black.
+    var linkColor = ${JSON.stringify(t.link)};
+    function setReadabilityFixes(doc, color) {
+      var s = doc.getElementById('rsvp-link-style');
+      if (!color) { if (s) s.remove(); return; }
+      if (!s) { s = doc.createElement('style'); s.id = 'rsvp-link-style'; (doc.head || doc.documentElement).appendChild(s); }
+      s.textContent =
+        'a, a:link, a:visited { color: ' + color + ' !important; }' +
+        'ul, ol, li, li * { color: inherit !important; }';
+    }
+    // epub.js writes an inline "margin: 0" on every chapter's body while laying it out, which overwrites the
+    // centring margin set above and leaves the text column hugging the left edge on wide (landscape) screens.
+    // A stylesheet rule with !important can't be overwritten by that inline style.
+    function ensureLayoutStyle(doc) {
+      if (doc.getElementById('rsvp-layout-style')) return;
+      var s = doc.createElement('style');
+      s.id = 'rsvp-layout-style';
+      s.textContent = 'body { margin-left: auto !important; margin-right: auto !important; max-width: 680px !important; }';
+      (doc.head || doc.documentElement).appendChild(s);
+    }
+    rendition.hooks.content.register(function(contents) {
+      ensureLayoutStyle(contents.document);
+      setReadabilityFixes(contents.document, linkColor);
+    });
+
+    // Jump to a chapter, then to an anchor inside it (contents-page and footnote links).
+    function goTo(item, frag) {
+      return rendition.display(item.href).then(function() {
+        if (!frag) return;
+        var c = rendition.getContents().filter(function(x) { return x.sectionIndex === item.index; })[0];
+        if (!c) return;
+        var el = c.document.getElementById(frag) || c.document.getElementsByName(frag)[0];
+        if (el) el.scrollIntoView({ block: 'start' });
+      });
+    }
+    // Resolve links ourselves against the chapter they appear in; epub.js's own link handling
+    // can't map them back to a chapter here, so contents-page links land on the wrong page.
+    rendition.hooks.content.register(function(contents) {
+      contents.document.addEventListener('click', function(e) {
+        var a = e.target && e.target.closest ? e.target.closest('a') : null;
+        var raw = a ? a.getAttribute('href') : null;
+        if (!raw) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.indexOf('//') === 0) {
+          // External link: hand it to the app to open in the browser; never load it inside the reader.
+          post({ type: 'externalLink', url: raw.indexOf('//') === 0 ? 'https:' + raw : raw });
+          return;
+        }
+        var cur = book.spine.get(contents.sectionIndex);
+        var hashAt = raw.indexOf('#');
+        var file = hashAt >= 0 ? raw.slice(0, hashAt) : raw;
+        var frag = hashAt >= 0 ? raw.slice(hashAt + 1) : '';
+        try { frag = decodeURIComponent(frag); } catch (err) {}
+        var target = cur;
+        if (file) {
+          var dir = cur.href.indexOf('/') >= 0 ? cur.href.slice(0, cur.href.lastIndexOf('/') + 1) : '';
+          target = findSpineItem(dir + file);
+        }
+        if (!target) return;
+        goTo(target, frag).catch(function() {});
+      }, true);
+    });
+
     // Report where in the book the current text selection is, so native selection-menu
     // actions (RSVP from here, later highlight/bookmark) know their position.
     rendition.on('selected', function(cfiRange, contents) {
@@ -281,24 +357,41 @@ html, body { background: ${t.bg}; height: 100%; overflow: hidden; }
       post({ type: 'error', message: String(e) });
     });
 
+    // Fast scrolling fires many relocations; report at most one every 80 ms, always the latest.
+    var posTimer = null;
     rendition.on('relocated', function(loc) {
       if (ready && loc && loc.start) {
-        lastPct = loc.start.percentage || 0;
-        post({ type: 'position', percentage: loc.start.percentage || 0 });
+        // atEnd is true once the last page of the last chapter is on screen: report 100% so the book counts as finished.
+        lastPct = loc.atEnd ? 1 : (loc.start.percentage || 0);
+        if (posTimer) return;
+        posTimer = setTimeout(function() {
+          posTimer = null;
+          post({ type: 'position', percentage: lastPct });
+        }, 80);
       }
     });
 
-    window.__updateStyle = function(bg, fg, fontSize, lineHeight) {
+    window.__updateStyle = function(bg, fg, fontSize, lineHeight, link) {
       rendition.themes.override('background', bg);
       rendition.themes.override('color', fg);
       rendition.themes.override('font-size', fontSize + 'px');
       rendition.themes.override('line-height', String(lineHeight));
+      linkColor = link || null;
+      rendition.getContents().forEach(function(c) { setReadabilityFixes(c.document, linkColor); });
+    };
+
+    // Scrubber jump: needs the location map (built shortly after first open), so it's a no-op until then.
+    window.__seekTo = function(fraction) {
+      if (!ready) return;
+      var f = Math.min(1, Math.max(0, fraction));
+      try { rendition.display(book.locations.cfiFromPercentage(f)); } catch (err) {}
     };
 
     window.addEventListener('message', function(e) {
       try {
         var msg = JSON.parse(e.data);
-        if (msg.type === 'updateStyle') window.__updateStyle(msg.bg, msg.fg, msg.fontSize, msg.lineHeight);
+        if (msg.type === 'seek') window.__seekTo(msg.fraction);
+        else if (msg.type === 'updateStyle') window.__updateStyle(msg.bg, msg.fg, msg.fontSize, msg.lineHeight, msg.link);
       } catch (err) {}
     });
   } catch(e) {
@@ -313,8 +406,14 @@ html, body { background: ${t.bg}; height: 100%; overflow: hidden; }
 
 // ─── Web (iframe) ─────────────────────────────────────────────────────────────
 
-function EpubReaderWeb({ epubSrc, cachedLocations, totalWords, initialWordIndex, prefs, highlight, onWordIndex, onTotalWords, onSaveLocations, onSelectionFallback }: Props) {
+function EpubReaderWeb({ epubSrc, cachedLocations, totalWords, initialWordIndex, prefs, highlight, seek, onWordIndex, onTotalWords, onSaveLocations, onSelectionFallback }: Props) {
   const iframeRef = useRef<any>(null);
+  const handledSeek = useRef(seek?.nonce ?? 0);
+  useEffect(() => {
+    if (!seek || seek.nonce === handledSeek.current) return;
+    handledSeek.current = seek.nonce;
+    iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ type: 'seek', fraction: seek.fraction }), '*');
+  }, [seek]);
   const initialPctRef = useRef(totalWords > 0 ? initialWordIndex / totalWords : 0);
   const cachedLocsRef = useRef(cachedLocations);
   const highlightRef = useRef(highlight ?? null);
@@ -332,6 +431,7 @@ function EpubReaderWeb({ epubSrc, cachedLocations, totalWords, initialWordIndex,
         else if (msg.type === 'wordCount') onTotalWords(msg.count);
         else if (msg.type === 'saveLocations') onSaveLocations(msg.data);
         else if (msg.type === 'selection') onSelectionFallback?.(toSelection(msg));
+        else if (msg.type === 'externalLink') openExternal(msg.url);
       } catch {}
     };
     window.addEventListener('message', handler);
@@ -341,7 +441,7 @@ function EpubReaderWeb({ epubSrc, cachedLocations, totalWords, initialWordIndex,
   useEffect(() => {
     const t = THEMES[prefs.theme];
     iframeRef.current?.contentWindow?.postMessage(
-      JSON.stringify({ type: 'updateStyle', bg: t.bg, fg: t.fg, fontSize: prefs.fontSize, lineHeight: prefs.lineHeight }), '*'
+      JSON.stringify({ type: 'updateStyle', bg: t.bg, fg: t.fg, fontSize: prefs.fontSize, lineHeight: prefs.lineHeight, link: t.link }), '*'
     );
   }, [prefs.theme, prefs.fontSize, prefs.lineHeight]);
 
@@ -360,11 +460,17 @@ function EpubReaderWeb({ epubSrc, cachedLocations, totalWords, initialWordIndex,
 
 // ─── Native (WebView) ─────────────────────────────────────────────────────────
 
-function EpubReaderNative({ epubSrc, cachedLocations, totalWords, initialWordIndex, prefs, highlight, onWordIndex, onTotalWords, onSaveLocations, onSelectionAction }: Props) {
+function EpubReaderNative({ epubSrc, cachedLocations, totalWords, initialWordIndex, prefs, highlight, seek, onWordIndex, onTotalWords, onSaveLocations, onSelectionAction }: Props) {
   const webViewRef = useRef<WebView>(null);
+  const handledSeek = useRef(seek?.nonce ?? 0);
   // Latest selection reported by the page; the native menu callback only carries the text.
   const lastSelectionRef = useRef<SelectionInfo | null>(null);
   const didLoadRef = useRef(false);
+  useEffect(() => {
+    if (!seek || seek.nonce === handledSeek.current || !didLoadRef.current) return;
+    handledSeek.current = seek.nonce;
+    webViewRef.current?.injectJavaScript(`window.__seekTo && window.__seekTo(${seek.fraction}); true;`);
+  }, [seek]);
   const initialPctRef = useRef(totalWords > 0 ? initialWordIndex / totalWords : 0);
   const cachedLocsRef = useRef(cachedLocations);
   const highlightRef = useRef(highlight ?? null);
@@ -378,7 +484,7 @@ function EpubReaderNative({ epubSrc, cachedLocations, totalWords, initialWordInd
     if (!didLoadRef.current) return;
     const t = THEMES[prefs.theme];
     webViewRef.current?.injectJavaScript(
-      `window.__updateStyle && window.__updateStyle('${t.bg}','${t.fg}',${prefs.fontSize},${prefs.lineHeight}); true;`
+      `window.__updateStyle && window.__updateStyle('${t.bg}','${t.fg}',${prefs.fontSize},${prefs.lineHeight},${JSON.stringify(t.link)}); true;`
     );
   }, [prefs.theme, prefs.fontSize, prefs.lineHeight]);
 
@@ -389,6 +495,7 @@ function EpubReaderNative({ epubSrc, cachedLocations, totalWords, initialWordInd
       else if (msg.type === 'wordCount') onTotalWords(msg.count);
       else if (msg.type === 'saveLocations') onSaveLocations(msg.data);
       else if (msg.type === 'selection') lastSelectionRef.current = toSelection(msg);
+      else if (msg.type === 'externalLink') openExternal(msg.url);
     } catch {}
   }, [onWordIndex, onTotalWords, onSaveLocations]);
 
@@ -423,10 +530,11 @@ function EpubReaderNative({ epubSrc, cachedLocations, totalWords, initialWordInd
 
 // ─── Export ───────────────────────────────────────────────────────────────────
 
-export default function EpubReader(props: Props) {
+// Memoized so the screen's frequent progress updates don't re-render the page.
+export default memo(function EpubReader(props: Props) {
   if (Platform.OS === 'web') return <EpubReaderWeb {...props} />;
   return <EpubReaderNative {...props} />;
-}
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

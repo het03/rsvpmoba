@@ -54,14 +54,34 @@ const ENTITIES: Record<string, string> = {
   mdash: '—', ndash: '–', hellip: '…', lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”',
 };
 
+// HTML 4 Latin-1 names for U+00A0–U+00FF in order, so "&eacute;" and friends become real letters.
+const LATIN1_NAMES =
+  'nbsp iexcl cent pound curren yen brvbar sect uml copy ordf laquo not shy reg macr deg plusmn sup2 sup3 acute ' +
+  'micro para middot cedil sup1 ordm raquo frac14 frac12 frac34 iquest Agrave Aacute Acirc Atilde Auml Aring ' +
+  'AElig Ccedil Egrave Eacute Ecirc Euml Igrave Iacute Icirc Iuml ETH Ntilde Ograve Oacute Ocirc Otilde Ouml times ' +
+  'Oslash Ugrave Uacute Ucirc Uuml Yacute THORN szlig agrave aacute acirc atilde auml aring aelig ccedil egrave ' +
+  'eacute ecirc euml igrave iacute icirc iuml eth ntilde ograve oacute ocirc otilde ouml divide oslash ugrave ' +
+  'uacute ucirc uuml yacute thorn yuml';
+LATIN1_NAMES.split(' ').forEach((name, i) => { ENTITIES[name] = String.fromCharCode(0xa0 + i); });
+Object.assign(ENTITIES, {
+  nbsp: ' ', thinsp: ' ', ensp: ' ', emsp: ' ', zwnj: '', zwj: '',
+  bull: String.fromCharCode(0x2022), trade: String.fromCharCode(0x2122), euro: String.fromCharCode(0x20ac),
+  sbquo: String.fromCharCode(0x201a), bdquo: String.fromCharCode(0x201e), dagger: String.fromCharCode(0x2020),
+  lsaquo: String.fromCharCode(0x2039), rsaquo: String.fromCharCode(0x203a),
+  oelig: String.fromCharCode(0x153), OElig: String.fromCharCode(0x152),
+  scaron: String.fromCharCode(0x161), Scaron: String.fromCharCode(0x160),
+});
+
 export function htmlToText(html: string): string {
   return html
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
     .replace(/<head[\s\S]*?<\/head>/gi, '')
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')
+    .replace(/<(script|style|svg)[\s\S]*?<\/\1>/gi, '')
     .replace(/<\/(p|div|h[1-6]|li|blockquote|tr)>/gi, '\n\n')
     .replace(/<br\s*\/?>/gi, ' ')
     .replace(/<[^>]+>/g, '')
     .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
     .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
-    .replace(/&([a-z]+);/gi, (m, n) => ENTITIES[n.toLowerCase()] ?? m);
+    .replace(/&([a-z0-9]+);/gi, (m, n) => ENTITIES[n] ?? ENTITIES[n.toLowerCase()] ?? m);
 }

@@ -1,7 +1,8 @@
 import ProgressBar from '@/components/Shared/ProgressBar';
 import { getDb } from '@/db';
 import { type ReaderPrefs, THEMES } from '@/lib/readerPrefs';
-import { getOrpIndex } from '@/rsvp/orp';
+import { getOrpRange } from '@/rsvp/orp';
+import { CURSIVE_RE, RTL_RE } from '@/rsvp/script';
 import { getPauseMultiplier, getRampMultiplier, getWordWeight, prevSentenceStart } from '@/rsvp/pause';
 import type { Tokens } from '@/rsvp/tokenize';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -228,18 +229,20 @@ export default function RsvpReader({ bookId, tokens, startFraction, prefs, onExi
   const gesture = Gesture.Exclusive(pan, tap);
 
   const word = words[index] ?? '';
-  const orp = getOrpIndex(word);
-  // Size the word so its longer half still fits beside the centred focus letter.
-  const side = Math.max(orp, word.length - orp - 1, 1);
-  const fontSize = Math.max(18, Math.min(44, Math.floor((width / 2 - 24) / (side * 0.62))));
+  const [orpStart, orpEnd] = getOrpRange(word);
+  const rtl = RTL_RE.test(word);
+  // Arabic-style scripts join letters, so the word is drawn as one centred piece instead of three.
+  const cursive = CURSIVE_RE.test(word);
+  const side = Math.max(orpStart, word.length - orpEnd, 1);
+  // Size the word so it still fits: the longer half beside a centred focus letter, or the whole word if centred.
+  const fontSize = cursive
+    ? Math.max(18, Math.min(44, Math.floor((width - 48) / (Math.max(word.length, 1) * 0.6))))
+    : Math.max(18, Math.min(44, Math.floor((width / 2 - 24) / (side * 0.62))));
   const wordStyle = { color: theme.fg, fontSize, fontFamily: 'Fraunces-Regular' };
   const progress = words.length > 0 ? index / words.length : 0;
   const wpmColor = wpm > DROP_WPM ? ORP_COLOR : wpm > COMFORT_WPM ? WARN_COLOR : theme.fg;
-  const wpmNote = wpm > DROP_WPM
-    ? 'Comprehension drops at this speed'
-    : wpm > COMFORT_WPM
-      ? 'Above the comfortable range'
-      : '';
+  // Above ~500 WPM comprehension starts to slip, and drops noticeably past ~600.
+  const wpmNote = wpm > DROP_WPM ? 'too fast' : wpm > COMFORT_WPM ? 'fast' : '';
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: theme.bg }]}>
@@ -258,25 +261,43 @@ export default function RsvpReader({ bookId, tokens, startFraction, prefs, onExi
       <GestureDetector gesture={gesture}>
         <View style={styles.stage} collapsable={false}>
           <View style={[styles.tick, { backgroundColor: theme.fg }]} />
-          <View style={styles.wordRow}>
-            <View style={styles.left}>
-              <Text style={wordStyle} numberOfLines={1}>{word.slice(0, orp)}</Text>
+          {cursive ? (
+            <View style={styles.cursiveRow}>
+              <Text style={wordStyle} numberOfLines={1}>
+                {word.slice(0, orpStart)}
+                <Text style={{ color: ORP_COLOR }}>{word.slice(orpStart, orpEnd)}</Text>
+                {word.slice(orpEnd)}
+              </Text>
             </View>
-            <Text style={[wordStyle, { color: ORP_COLOR, fontFamily: 'Fraunces-Bold' }]}>{word[orp] ?? ''}</Text>
-            <View style={styles.right}>
-              <Text style={wordStyle} numberOfLines={1}>{word.slice(orp + 1)}</Text>
+          ) : (
+            <View style={[styles.wordRow, rtl && { flexDirection: 'row-reverse' }]}>
+              <View style={[styles.left, rtl && { alignItems: 'flex-start' }]}>
+                <Text style={wordStyle} numberOfLines={1}>{word.slice(0, orpStart)}</Text>
+              </View>
+              <Text style={[wordStyle, { color: ORP_COLOR, fontFamily: 'Fraunces-Bold' }]}>{word.slice(orpStart, orpEnd)}</Text>
+              <View style={[styles.right, rtl && { alignItems: 'flex-end' }]}>
+                <Text style={wordStyle} numberOfLines={1}>{word.slice(orpEnd)}</Text>
+              </View>
             </View>
-          </View>
+          )}
           <View style={[styles.tick, { backgroundColor: theme.fg }]} />
         </View>
       </GestureDetector>
 
       <View style={styles.footer}>
+        <Animated.View
+          style={[styles.wpmPill, { borderColor: wpmNote ? `${wpmColor}88` : `${theme.fg}33`, opacity: fade }]}
+        >
+          <Text style={[styles.wpmText, { color: wpmColor }]}>
+            {wpm} WPM{wpmNote ? ` · ${wpmNote}` : ''}
+          </Text>
+        </Animated.View>
         <Animated.View style={{ opacity: fade.interpolate({ inputRange: [0, 1], outputRange: [0.2, 1] }) }}>
           <ProgressBar value={progress} color={theme.fg} />
         </Animated.View>
+        <View style={styles.controlsRow}>
         <Animated.View
-          style={[styles.sentenceTouch, { opacity: fade.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }) }]}
+          style={{ opacity: fade.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }) }}
         >
         <TouchableOpacity onPress={backSentence} activeOpacity={0.7}>
           <Animated.View
@@ -313,10 +334,7 @@ export default function RsvpReader({ bookId, tokens, startFraction, prefs, onExi
           </Text>
         </TouchableOpacity>
         </Animated.View>
-        <Animated.View style={{ opacity: fade, gap: 8 }}>
-          <Text style={[styles.wpm, { color: wpmColor }]}>{wpm} WPM</Text>
-          <Text style={[styles.wpmNote, { color: wpmColor }]}>{wpmNote || ' '}</Text>
-        </Animated.View>
+        </View>
       </View>
 
       {breakDue && (
@@ -349,12 +367,16 @@ const styles = StyleSheet.create({
   stage: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 14 },
   tick: { width: 1.5, height: 14, opacity: 0.3 },
   wordRow: { flexDirection: 'row', alignItems: 'center', width: '100%' },
+  cursiveRow: { width: '100%', alignItems: 'center' },
   left: { flex: 1, alignItems: 'flex-end' },
   right: { flex: 1, alignItems: 'flex-start' },
-  footer: { paddingBottom: 24, gap: 20 },
-  wpm: { fontFamily: 'Inter-SemiBold', fontSize: 15, textAlign: 'center' },
-  wpmNote: { fontFamily: 'Inter-Regular', fontSize: 11, textAlign: 'center', marginTop: -6 },
-  sentenceTouch: { alignSelf: 'center' },
+  footer: { paddingBottom: 14, gap: 12 },
+  controlsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  wpmPill: {
+    alignSelf: 'center', height: 36, borderWidth: 1, borderRadius: 20, paddingHorizontal: 14,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  wpmText: { fontFamily: 'Inter-SemiBold', fontSize: 12 },
   sentenceBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderRadius: 20, height: 36,

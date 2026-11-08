@@ -3,10 +3,12 @@ import React from 'react';
 import { initDb } from '@/db';
 import { useAppTheme } from '@/lib/appTheme';
 import { useFonts } from 'expo-font';
+import * as SystemUI from 'expo-system-ui';
 import { SplashScreen, Stack, usePathname, useRouter } from 'expo-router';
 import { useEffect } from 'react';
-import { BackHandler, View } from 'react-native';
+import { BackHandler, View, useWindowDimensions } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // 1. Import regular and italic Fraunces variants
 import {
@@ -23,16 +25,21 @@ import {
   Inter_500Medium,
   Inter_600SemiBold,
   Inter_700Bold,
-  Inter_700Bold_Italic
+  Inter_700Bold_Italic,
+  Inter_800ExtraBold
 } from '@expo-google-fonts/inter';
 
 SplashScreen.preventAutoHideAsync();
 
 function RootShell({ children }: { children: React.ReactNode }) {
   const theme = useAppTheme();
+  const { width, height } = useWindowDimensions();
+  // Landscape puts the nav in a column on the left and the pages beside it. Only the direction changes,
+  // so the children keep their place in the tree and rotating never rebuilds an open screen.
+  const landscape = width > height;
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: theme.bg }}>
-      <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <View style={{ flex: 1, backgroundColor: theme.bg, flexDirection: landscape ? 'row' : 'column' }}>
         {children}
       </View>
     </GestureHandlerRootView>
@@ -40,6 +47,8 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
+  const theme = useAppTheme();
+
   const [loaded, error] = useFonts({
     // Fraunces
     'Fraunces-Regular': Fraunces_400Regular,
@@ -54,11 +63,18 @@ export default function RootLayout() {
     'Inter-SemiBold': Inter_600SemiBold,
     'Inter-Bold': Inter_700Bold,
     'Inter-BoldItalic': Inter_700Bold_Italic,
+    'Inter-ExtraBold': Inter_800ExtraBold,
   });
 
   useEffect(() => {
     initDb().catch(e => console.error('initDb failed:', e));
   }, []);
+
+  // The window's own background shows for a moment while the phone rotates; match it to the theme so
+  // rotation doesn't flash white (or black in light mode).
+  useEffect(() => {
+    SystemUI.setBackgroundColorAsync(theme.bg).catch(() => {});
+  }, [theme.bg]);
 
   useEffect(() => {
     if (loaded || error) {
@@ -72,8 +88,19 @@ export default function RootLayout() {
 
   return (
     <RootShell>
-      <Stack screenOptions={{ headerShown: false }} />
       <NavBar />
+      <View style={{ flex: 1 }}>
+        {/* Opening a book keeps the platform's default slide. Switching between the four tabs cross-fades
+            instead: a sideways slide drags the old screen across the fixed nav and looks clipped, in both
+            orientations. The screen container takes the theme colour so nothing flashes through. */}
+        <Stack
+          screenOptions={({ route }) => ({
+            headerShown: false,
+            contentStyle: { backgroundColor: theme.bg },
+            animation: route.name.startsWith('reader/') ? 'default' : 'fade',
+          })}
+        />
+      </View>
     </RootShell>
   );
 }
@@ -82,6 +109,9 @@ function NavBar() {
   const theme = useAppTheme();
   const pathname = usePathname();
   const router = useRouter();
+  const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const landscape = width > height;
 
   // On any tab page other than home, hardware back → go home.
   useEffect(() => {
@@ -96,10 +126,22 @@ function NavBar() {
 
   // Hide nav while reading — the reader has its own header + back button.
   if (pathname.startsWith('/reader/')) return null;
+
+  // Landscape: a vertical rail down the left edge, centred vertically; the pages take the rest of the width.
+  if (landscape) {
+    return (
+      <View style={{ justifyContent: 'center', paddingLeft: insets.left + 12, paddingRight: 8 }}>
+        <Nav vertical />
+      </View>
+    );
+  }
+
   return (
     <View
       pointerEvents="box-none"
-      style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingBottom: 26, alignItems: 'center' }}
+      // zIndex: the nav comes before the pages in the layout (so landscape can put it beside them), which
+      // would otherwise paint it underneath the pages in portrait.
+      style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingBottom: 26, alignItems: 'center', zIndex: 10 }}
     >
       <Nav />
     </View>

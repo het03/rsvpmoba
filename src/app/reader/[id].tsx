@@ -2,12 +2,15 @@ import EpubReader, { type HighlightTarget } from '@/components/Reader/EpubReader
 import ReaderTray from '@/components/Reader/ReaderTray';
 import TxtReader from '@/components/Reader/TxtReader';
 import RsvpReader from '@/components/Reader/RsvpReader';
-import ProgressBar from '@/components/Shared/ProgressBar';
+import NoticeModal, { type Notice } from '@/components/NoticeModal';
+import Scrubber from '@/components/Shared/Scrubber';
 import { getDb, type Book } from '@/db';
 import { parseEpub } from '@/lib/epub';
 import { type ReaderPrefs, THEMES, loadPrefs } from '@/lib/readerPrefs';
 import { webGetFile } from '@/lib/webFileStore';
+import type { SelectionInfo } from '@/lib/selectionMenu';
 import { findAnchor, findChapter, findNear, type RsvpAnchor } from '@/rsvp/anchor';
+import { isUnsupportedBook } from '@/rsvp/script';
 import { htmlToText, tokenize, tokenizeChapters, type Tokens } from '@/rsvp/tokenize';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -15,6 +18,26 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+// Where RSVP last stopped, as an exact index into the book's word list (the saved reading position is
+// only approximate, and the reader overwrites it with the word at the top of the screen).
+const rsvpPosKey = (bookId: number) => `rsvp_pos_${bookId}`;
+// After RSVP exits, the reader scrolls to the highlighted word and reports positions while it settles.
+const SETTLE_MS = 2500;
+
+function saveRsvpPos(bookId: number, index: number, total: number) {
+  AsyncStorage.setItem(rsvpPosKey(bookId), JSON.stringify({ index, total })).catch(() => {});
+}
+
+async function loadRsvpPos(bookId: number): Promise<{ index: number; total: number } | null> {
+  try {
+    const raw = await AsyncStorage.getItem(rsvpPosKey(bookId));
+    const v = raw ? JSON.parse(raw) : null;
+    return v && typeof v.index === 'number' && typeof v.total === 'number' ? v : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function ReaderScreen() {
   const { id, mode } = useLocalSearchParams<{ id: string; mode?: string }>();
@@ -38,6 +61,7 @@ export default function ReaderScreen() {
   const [highlightWord, setHighlightWord] = useState<number | undefined>(undefined);
   const [highlightEpub, setHighlightEpub] = useState<HighlightTarget | null>(null);
   const [rsvpStart, setRsvpStart] = useState(0);
+  const [notice, setNotice] = useState<Notice | null>(null);
   // True while opening straight into RSVP, so the normal reader never flashes.
   const [launchingRsvp, setLaunchingRsvp] = useState(mode === 'rsvp');
 
@@ -45,6 +69,8 @@ export default function ReaderScreen() {
   const [txtContent, setTxtContent] = useState('');
   const [totalWords, setTotalWords] = useState(0);
   const [wordIndex, setWordIndex] = useState(0);
+  // Where the readers open. Separate from the live wordIndex so progress updates don't re-render them.
+  const [startWord, setStartWord] = useState(0);
 
   // EPUB state — holds a URL (blob: on web, file:// on native) rather than base64 data.
   // Avoids passing megabytes of book data through the React Native bridge.
@@ -63,6 +89,9 @@ export default function ReaderScreen() {
   }, [epubSrc]);
 
   const bookRef = useRef<Book | null>(null);
+  // Set when RSVP exits: lets us tell the reader settling on the highlighted word apart from the
+  // user scrolling away, so a real scroll can drop the saved RSVP word.
+  const rsvpGuard = useRef<{ activeAt: number; baseline: number | null } | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestWordIndex = useRef(0);
 
@@ -77,6 +106,16 @@ export default function ReaderScreen() {
   }, []);
 
   const handleWordIndex = useCallback((idx: number) => {
+    const guard = rsvpGuard.current;
+    if (guard) {
+      if (Date.now() < guard.activeAt || guard.baseline === null) {
+        guard.baseline = idx; // still settling on the highlighted word
+      } else if (Math.abs(idx - guard.baseline) >= (bookRef.current?.format === 'epub' ? 1 : 30)) {
+        // The user scrolled after returning from RSVP, so the next RSVP should start from here instead.
+        rsvpGuard.current = null;
+        if (bookRef.current) AsyncStorage.removeItem(rsvpPosKey(bookRef.current.id)).catch(() => {});
+      }
+    }
     latestWordIndex.current = idx;
     setWordIndex(idx);
     if (book) {
@@ -128,6 +167,7 @@ export default function ReaderScreen() {
         );
         const resumeAt = posRows[0]?.word_index ?? 0;
         setWordIndex(resumeAt);
+        setStartWord(resumeAt);
         latestWordIndex.current = resumeAt;
 
         // Opening a book makes it the "current" one in the Reader tab.
@@ -214,10 +254,18 @@ export default function ReaderScreen() {
           built = chapterized.tokens;
         }
         if (built.words.length === 0) throw new Error('No readable text in this book');
+        if (isUnsupportedBook(built.words)) throw Object.assign(new Error('unsupported script'), { code: 'UNSUPPORTED' });
         tokens = built;
         setRsvpTokens(built);
       } catch (e: any) {
-        console.warn('RSVP prepare failed:', e);
+        if (e?.code === 'UNSUPPORTED') {
+          setNotice({
+            title: "RSVP isn't available for this book",
+            message: "RSVP needs words separated by spaces, so it can't read Chinese, Japanese or Thai text yet. You can still read the book normally.",
+          });
+        } else {
+          console.warn('RSVP prepare failed:', e);
+        }
         setLaunchingRsvp(false);
         setRsvpFrom(null);
         return;
@@ -240,6 +288,14 @@ export default function ReaderScreen() {
       idx = findAnchor(tokens.words, frac, anchor.text);
     } else {
       idx = Math.round(frac * tokens.words.length);
+      if (fromFraction === undefined) {
+        // Resuming RSVP: prefer the exact word RSVP last stopped on, unless the reader has since moved elsewhere.
+        const len = tokens.words.length;
+        const saved = await loadRsvpPos(book.id);
+        if (saved && saved.total === len && Math.abs(saved.index / len - frac) <= Math.max(0.01, 600 / len)) {
+          idx = saved.index;
+        }
+      }
     }
     idx = Math.min(tokens.words.length - 1, Math.max(0, idx));
     setRsvpStart(idx / tokens.words.length);
@@ -262,6 +318,10 @@ export default function ReaderScreen() {
 
   const exitRsvp = useCallback((fraction: number, wordIndexAtExit: number) => {
     if (!book) return;
+    // The reopened reader reports the word at the top of the screen, which sits before this one and would
+    // overwrite it. Keep RSVP's exact stopping point so the next RSVP can resume from it.
+    if (rsvpTokens) saveRsvpPos(book.id, wordIndexAtExit, rsvpTokens.words.length);
+    rsvpGuard.current = { activeAt: Date.now() + SETTLE_MS, baseline: null };
     // Tell the reopened reader which word RSVP stopped on so it can scroll there and flash it.
     if (book.format === 'txt') {
       setHighlightWord(wordIndexAtExit);
@@ -280,15 +340,38 @@ export default function ReaderScreen() {
         });
       }
     }
-    const idx = Math.round(fraction * (book.format === 'epub' ? 1000 : totalWords));
+    // Finishing RSVP on the last word means the book is finished, not 99.99% done.
+    const finished = !!rsvpTokens && wordIndexAtExit >= rsvpTokens.words.length - 1;
+    const idx = Math.round((finished ? 1 : fraction) * (book.format === 'epub' ? 1000 : totalWords));
     if (saveTimer.current) clearTimeout(saveTimer.current);
     latestWordIndex.current = idx;
     setWordIndex(idx);
+    setStartWord(idx);
     savePosition(book.id, idx);
     setReaderKey(k => k + 1);
     setLaunchingRsvp(false);
     setRsvpOpen(false);
   }, [book, totalWords, savePosition, rsvpTokens]);
+
+  // Stable callbacks for the readers (they're memoized, so new function identities would re-render them).
+  // Hooks must stay above the early returns below.
+  const startRsvpRef = useRef(startRsvp);
+  startRsvpRef.current = startRsvp;
+  const onSelectionAction = useCallback((key: string, sel: SelectionInfo) => {
+    if (key === 'rsvp') void startRsvpRef.current(sel.fraction, sel);
+  }, []);
+  const onSelectionFallback = useCallback((sel: SelectionInfo) => {
+    setRsvpFrom({ fraction: sel.fraction, anchor: sel });
+  }, []);
+  // Scrubber release: ask the active reader to jump to this fraction of the book.
+  const [seek, setSeek] = useState<{ fraction: number; nonce: number } | null>(null);
+  const handleSeek = useCallback((fraction: number) => {
+    setSeek(s => ({ fraction, nonce: (s?.nonce ?? 0) + 1 }));
+  }, []);
+  const onSaveLocations = useCallback((data: string) => {
+    const b = bookRef.current;
+    if (b) AsyncStorage.setItem(`epub_locs_${b.id}`, data).catch(() => {});
+  }, []);
 
   if (loading) {
     return (
@@ -340,7 +423,13 @@ export default function ReaderScreen() {
 
       {/* Progress */}
       <View style={styles.progressRow}>
-        <ProgressBar value={progress} color={theme.fg} />
+        <Scrubber
+          value={progress}
+          color={theme.fg}
+          contrast={theme.bg}
+          disabled={totalWords === 0}
+          onSeek={handleSeek}
+        />
       </View>
 
       {/* Brightness overlay — pointerEvents none so touches pass through to content */}
@@ -360,12 +449,13 @@ export default function ReaderScreen() {
         <TxtReader
           key={readerKey}
           content={txtContent}
-          initialWordIndex={wordIndex}
+          initialWordIndex={startWord}
           prefs={prefs}
           onWordIndex={handleWordIndex}
           highlightWord={highlightWord}
-          onSelectionAction={(key, sel) => { if (key === 'rsvp') void startRsvp(sel.fraction, sel); }}
-          onSelectionFallback={sel => setRsvpFrom({ fraction: sel.fraction, anchor: sel })}
+          seek={seek}
+          onSelectionAction={onSelectionAction}
+          onSelectionFallback={onSelectionFallback}
         />
       ) : (
         <EpubReader
@@ -373,14 +463,15 @@ export default function ReaderScreen() {
           epubSrc={epubSrc}
           cachedLocations={epubCachedLocsRef.current}
           totalWords={totalWords}
-          initialWordIndex={wordIndex}
+          initialWordIndex={startWord}
           prefs={prefs}
           onWordIndex={handleWordIndex}
           highlight={highlightEpub}
-          onSelectionAction={(key, sel) => { if (key === 'rsvp') void startRsvp(sel.fraction, sel); }}
-          onSelectionFallback={sel => setRsvpFrom({ fraction: sel.fraction, anchor: sel })}
+          seek={seek}
+          onSelectionAction={onSelectionAction}
+          onSelectionFallback={onSelectionFallback}
           onTotalWords={handleTotalWords}
-          onSaveLocations={(data) => book && AsyncStorage.setItem(`epub_locs_${book.id}`, data).catch(() => {})}
+          onSaveLocations={onSaveLocations}
         />
       )}
 
@@ -401,7 +492,9 @@ export default function ReaderScreen() {
           >
             {rsvpLoading && <ActivityIndicator size="small" color={theme.bg} />}
             <Text style={[styles.fromPillText, { color: theme.bg }]}>
-              {rsvpLoading ? 'Preparing…' : 'RSVP from here'}
+              {rsvpLoading
+                ? 'Preparing…'
+                : <><Text style={styles.fromPillBrand}>RSVP</Text> from here</>}
             </Text>
           </TouchableOpacity>
         </View>
@@ -416,6 +509,8 @@ export default function ReaderScreen() {
           onExit={exitRsvp}
         />
       )}
+
+      <NoticeModal notice={notice} onClose={() => setNotice(null)} />
     </View>
   );
 }
@@ -500,6 +595,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 4,
   },
+  fromPillBrand: {
+    fontFamily: 'Inter-ExtraBold',
+  },
   fromPillText: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 13,
@@ -512,7 +610,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 8,
   },
+  // The scrubber is 32px tall for easy touch, but its 3px line should sit flush under the header like
+  // the old bar: pull it up over the header and cancel the extra height so the page doesn't move down.
   progressRow: {
     paddingHorizontal: 0,
+    marginTop: -16,
+    marginBottom: -14,
+    zIndex: 12, // above the reader so the scrubber's percentage bubble isn't covered
   },
 });
