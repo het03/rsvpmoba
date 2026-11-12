@@ -42,7 +42,3 @@ Scan the QR code with [Expo Go](https://expo.dev/go), or press `i` / `a` to open
 - `expo-image` · `expo-document-picker`
 
 ---
-
-## License
-
-MIT
