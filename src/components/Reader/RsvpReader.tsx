@@ -1,5 +1,6 @@
 import ProgressBar from '@/components/Shared/ProgressBar';
 import { getDb } from '@/db';
+import { checkDailyGoal } from '@/lib/goalNotifier';
 import { type ReaderPrefs, THEMES } from '@/lib/readerPrefs';
 import { getOrpRange } from '@/rsvp/orp';
 import { CURSIVE_RE, RTL_RE } from '@/rsvp/script';
@@ -175,7 +176,7 @@ export default function RsvpReader({ bookId, tokens, startFraction, prefs, onExi
       return getDb().then(db => read > 0
         ? db.runAsync('UPDATE sessions SET end_time = ?, words_read = ?, avg_wpm = ? WHERE id = ?', [Date.now(), read, avg, id])
         : db.runAsync('DELETE FROM sessions WHERE id = ?', [id])
-      );
+      ).then(() => checkDailyGoal(read));
     }).catch(() => {});
   }, []);
 

@@ -1,11 +1,15 @@
 import GreetingHeader from '@/components/greetings';
+import NotificationsOffModal from '@/components/NotificationsOffModal';
 import WpmChart from '@/components/Stats/WpmChart';
 import { getDb } from '@/db';
 import { useAppTheme } from '@/lib/appTheme';
+import { goalProgress, stepGoal } from '@/lib/dailyGoal';
+import { loadGoal, requestGoalPermission, saveGoal } from '@/lib/goalNotifier';
 import { EMPTY_STATS, formatHour, loadStats, type Stats } from '@/lib/stats';
+import * as Linking from 'expo-linking';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState, type ReactNode } from 'react';
-import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const SPACING = 16;
@@ -38,6 +42,8 @@ export default function StatsScreen() {
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
   const [stats, setStats] = useState<Stats>(EMPTY_STATS);
+  const [goal, setGoal] = useState(0);
+  const [notifOff, setNotifOff] = useState(false);
 
   // Stats are a snapshot, not a stream: reload each time the tab is shown so a session you just finished is in it.
   useFocusEffect(useCallback(() => {
@@ -46,8 +52,23 @@ export default function StatsScreen() {
       .then(db => loadStats(db))
       .then(s => { if (live) setStats(s); })
       .catch(e => console.error('loadStats failed:', e));
+    loadGoal().then(g => { if (live) setGoal(g); });
     return () => { live = false; };
   }, []));
+
+  const changeGoal = async (direction: 1 | -1) => {
+    const next = stepGoal(goal, direction);
+    if (next === goal) return;
+    setGoal(next);
+    await saveGoal(next);
+    // Ask when a goal is first turned on, so the prompt appears in context rather than mid-session.
+    if (goal === 0 && next > 0 && !(await requestGoalPermission())) setNotifOff(true);
+  };
+
+  const openSettings = () => {
+    setNotifOff(false);
+    Linking.openSettings().catch(() => {});
+  };
 
   const { words, trend, streak, dna } = stats;
   const hasData = dna.sessions > 0;
@@ -66,7 +87,7 @@ export default function StatsScreen() {
     <Card style={landscape ? styles.half : undefined}>
       <CardLabel>Speed trend · avg WPM per session</CardLabel>
       {trend.length > 0 ? (
-        <WpmChart values={trend} />
+        <WpmChart values={trend} times={stats.trendTimes} />
       ) : (
         <Text style={[styles.empty, { color: theme.textSub }]}>Your speed over time appears here.</Text>
       )}
@@ -107,6 +128,37 @@ export default function StatsScreen() {
           </View>
         </Card>
 
+        <Card>
+          <CardLabel>Daily goal</CardLabel>
+          <View style={styles.goalRow}>
+            <TouchableOpacity
+              accessibilityLabel="Lower daily goal"
+              onPress={() => changeGoal(-1)}
+              disabled={goal === 0}
+              style={[styles.stepper, { borderColor: theme.borderSubtle, opacity: goal === 0 ? 0.35 : 1 }]}
+            >
+              <Text style={[styles.stepperText, { color: theme.text }]}>−</Text>
+            </TouchableOpacity>
+            <Figure
+              big
+              value={goal === 0 ? 'Off' : goal.toLocaleString()}
+              label={goal === 0 ? 'tap + to set a daily word goal' : `words a day · ${words.today.toLocaleString()} today`}
+            />
+            <TouchableOpacity
+              accessibilityLabel="Raise daily goal"
+              onPress={() => changeGoal(1)}
+              style={[styles.stepper, { borderColor: theme.borderSubtle }]}
+            >
+              <Text style={[styles.stepperText, { color: theme.text }]}>+</Text>
+            </TouchableOpacity>
+          </View>
+          {goal > 0 && (
+            <View style={[styles.track, { backgroundColor: theme.borderSubtle }]}>
+              <View style={[styles.fill, { backgroundColor: theme.text, width: `${goalProgress(words.today, goal) * 100}%` }]} />
+            </View>
+          )}
+        </Card>
+
         {streakCard}
 
         <View style={landscape ? styles.landscapeRow : styles.stack}>
@@ -116,13 +168,15 @@ export default function StatsScreen() {
 
         {!hasData && (
           <Text style={[styles.empty, { color: theme.textSub }]}>
-            Read in RSVP mode and your stats will build up here.
+            Finish a reading session and your stats will build up here.
           </Text>
         )}
 
         {/* Portrait: clear the floating nav bar. Landscape: the nav is a side rail, so no clearance needed. */}
         <View style={{ height: landscape ? 0 : NAV_CLEARANCE - SPACING }} />
       </ScrollView>
+
+      <NotificationsOffModal visible={notifOff} onClose={() => setNotifOff(false)} onOpenSettings={openSettings} />
     </SafeAreaView>
   );
 }
@@ -152,4 +206,9 @@ const styles = StyleSheet.create({
   bigNumber: { fontFamily: 'Fraunces-Regular', fontSize: 30 },
   figureLabel: { fontFamily: 'Inter-Medium', fontSize: 12 },
   empty: { fontFamily: 'Inter-Regular', fontSize: 13, textAlign: 'center' },
+  goalRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  stepper: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  stepperText: { fontFamily: 'Inter-Medium', fontSize: 22, lineHeight: 26 },
+  track: { height: 6, borderRadius: 3, overflow: 'hidden' },
+  fill: { height: 6, borderRadius: 3 },
 });

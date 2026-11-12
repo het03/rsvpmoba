@@ -41,6 +41,7 @@ describe('loadStats', () => {
     const s = await loadStats(await getDb(), NOW);
     assert.deepEqual(s.words, { today: 0, week: 0, month: 0, total: 0 });
     assert.deepEqual(s.trend, []);
+    assert.deepEqual(s.trendTimes, []);
     assert.deepEqual(s.streak, { current: 0, longest: 0 });
     assert.deepEqual(s.dna, { peakHour: null, avgWpm: 0, booksFinished: 0, sessions: 0 });
   });
@@ -83,6 +84,16 @@ describe('loadStats', () => {
     assert.equal(s.trend[s.trend.length - 1], 200 + TREND_SESSIONS + 4); // newest last
     assert.equal(s.trend[0], 205);                                       // the 5 oldest dropped
     assert.deepEqual(s.trend, [...s.trend].sort((a, b) => a - b));
+  });
+
+  test('each trend point carries its session start time, in the same order', async () => {
+    const t0 = at(2026, 10, 1, 8);
+    await addSession(t0 + 2 * 3_600_000, 100, 320);
+    await addSession(t0, 100, 280);
+    await addSession(t0 + 3_600_000, 100, 300);
+    const s = await loadStats(await getDb(), NOW);
+    assert.deepEqual(s.trend, [280, 300, 320]);
+    assert.deepEqual(s.trendTimes, [t0, t0 + 3_600_000, t0 + 2 * 3_600_000]);
   });
 
   test('streak runs from the days that have sessions; reading in the evening of earlier days counts', async () => {

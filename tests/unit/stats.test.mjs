@@ -7,6 +7,7 @@ import {
   dateKey,
   formatHour,
   linePath,
+  nearestPointIndex,
   peakHour,
   periodStarts,
 } from '../../src/lib/stats.ts';
@@ -167,6 +168,22 @@ describe('chartPoints / linePath', () => {
       assert.ok(p.x >= 10 && p.x <= 290, `x ${p.x}`);
       assert.ok(p.y >= 10 && p.y <= 90, `y ${p.y}`);
     }
+  });
+
+  test('a touch picks the nearest point, including beyond either end', () => {
+    const pts = chartPoints([200, 400, 300], layout); // x = 10, 150, 290
+    assert.equal(nearestPointIndex(pts, 12), 0);
+    assert.equal(nearestPointIndex(pts, 140), 1);
+    assert.equal(nearestPointIndex(pts, 200), 1);
+    assert.equal(nearestPointIndex(pts, 230), 2);
+    assert.equal(nearestPointIndex(pts, -50), 0);
+    assert.equal(nearestPointIndex(pts, 9999), 2);
+  });
+
+  test('a touch exactly between two points goes to the earlier one; no points means null', () => {
+    const pts = chartPoints([200, 400], layout); // x = 10, 290
+    assert.equal(nearestPointIndex(pts, 150), 0);
+    assert.equal(nearestPointIndex([], 100), null);
   });
 
   test('path data starts with M and joins with L', () => {

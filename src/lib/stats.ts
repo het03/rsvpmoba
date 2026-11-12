@@ -13,6 +13,8 @@ export type Stats = {
   words: { today: number; week: number; month: number; total: number };
   /** Average WPM of the most recent sessions, oldest first. */
   trend: number[];
+  /** Start time of each session in `trend`, same order, so a point on the chart can be dated. */
+  trendTimes: number[];
   streak: { current: number; longest: number };
   dna: {
     /** Hour of day (0–23) you most often start reading, or null with no sessions. */
@@ -27,6 +29,7 @@ export type Stats = {
 export const EMPTY_STATS: Stats = {
   words: { today: 0, week: 0, month: 0, total: 0 },
   trend: [],
+  trendTimes: [],
   streak: { current: 0, longest: 0 },
   dna: { peakHour: null, avgWpm: 0, booksFinished: 0, sessions: 0 },
 };
@@ -122,6 +125,16 @@ export function chartPoints(values: number[], { width, height, padX, padY }: Cha
   }));
 }
 
+/** Index of the point whose x is closest to `x` (a touch position). Null when there are no points; ties go to the earlier point. */
+export function nearestPointIndex(points: ChartPoint[], x: number): number | null {
+  if (points.length === 0) return null;
+  let best = 0;
+  for (let i = 1; i < points.length; i++) {
+    if (Math.abs(points[i].x - x) < Math.abs(points[best].x - x)) best = i;
+  }
+  return best;
+}
+
 /** SVG path data ('M x y L x y …') through the points. */
 export function linePath(points: ChartPoint[]): string {
   return points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
@@ -143,8 +156,8 @@ export async function loadStats(db: SQLiteDatabase, now: number = Date.now()): P
     [starts.day, starts.week, starts.month],
   );
 
-  const recent = await db.getAllAsync<{ avg_wpm: number }>(
-    'SELECT avg_wpm FROM sessions WHERE words_read > 0 AND avg_wpm > 0 ORDER BY start_time DESC LIMIT ?',
+  const recent = await db.getAllAsync<{ avg_wpm: number; start_time: number }>(
+    'SELECT avg_wpm, start_time FROM sessions WHERE words_read > 0 AND avg_wpm > 0 ORDER BY start_time DESC LIMIT ?',
     [TREND_SESSIONS],
   );
 
@@ -166,6 +179,7 @@ export async function loadStats(db: SQLiteDatabase, now: number = Date.now()): P
       total: totals?.total ?? 0,
     },
     trend: recent.map(r => r.avg_wpm).reverse(),
+    trendTimes: recent.map(r => r.start_time).reverse(),
     streak: calcStreaks(startTimes.map(dateKey), now),
     dna: {
       peakHour: peakHour(startTimes),
