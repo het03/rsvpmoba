@@ -2,8 +2,8 @@ import { getDb } from '@/db';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import { GOAL_FIRED_KEY, GOAL_KEY, parseGoal, shouldNotifyGoal } from './dailyGoal';
-import { dateKey, periodStarts } from './stats';
+import { GOAL_FIRED_KEY, GOAL_KEY, parseGoal, shouldNotifyGoal } from '@/lib/dailyGoal';
+import { dateKey, periodStarts } from '@/lib/stats';
 
 const CHANNEL_ID = 'goal';
 const supported = Platform.OS === 'ios' || Platform.OS === 'android';

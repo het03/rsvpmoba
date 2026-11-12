@@ -10,6 +10,7 @@ const SHIMS = {
   'react-native': 'react-native.mjs',
   'expo-file-system/legacy': 'expo-file-system.mjs',
   'expo-sqlite': 'expo-sqlite.mjs',
+  'expo-notifications': 'expo-notifications.mjs',
   '@react-native-async-storage/async-storage': 'async-storage.mjs',
 };
 

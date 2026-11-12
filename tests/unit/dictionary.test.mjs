@@ -78,6 +78,22 @@ describe('stripHtml', () => {
     assert.equal(stripHtml('  a \n  b  '), 'a b');
   });
 
+  test('a "<" that never closes is just text', () => {
+    assert.equal(stripHtml('a < b'), 'a < b');
+    assert.equal(stripHtml('1 <2 and 3'), '1 <2 and 3');
+    assert.equal(stripHtml('<b>bold</b> then <'), 'bold then <');
+  });
+
+  test('a "<" inside a tag does not stop the tag from being removed', () => {
+    assert.equal(stripHtml('<a title="a<b">link</a>'), 'link');
+    assert.equal(stripHtml('<<b>x'), 'x');
+  });
+
+  test('list and line-break tags become spaces even with attributes and in capitals', () => {
+    assert.equal(stripHtml('one<BR/>two<li class="x">three</li>four'), 'one two three four');
+    assert.equal(stripHtml('<p>a</p><p>b</p>'), 'a b');
+  });
+
   test('an invalid code point is left as is instead of throwing', () => {
     assert.equal(stripHtml('x &#99999999; y'), 'x &#99999999; y');
   });

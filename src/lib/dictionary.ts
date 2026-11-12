@@ -64,9 +64,20 @@ const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"'
 
 /** Wiktionary text to plain text: drops tags (lists become spaces), decodes entities, collapses whitespace. */
 export function stripHtml(html: string): string {
-  return html
-    .replace(/<\/?(?:li|ol|ul|br|p|div)\b[^>]*>/gi, ' ')
-    .replace(/<[^>]*>/g, '')
+  // A single left-to-right scan (not regex replaces): a "<" with no closing ">" must cost nothing, where
+  // /<[^>]*>/ rescans to the end of the text from every "<" and goes quadratic on hostile input.
+  let text = '';
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf('<', i);
+    if (lt === -1) { text += html.slice(i); break; }
+    text += html.slice(i, lt);
+    const gt = html.indexOf('>', lt);
+    if (gt === -1) { text += html.slice(lt); break; } // an unclosed "<" is just text
+    text += /^<\/?(?:li|ol|ul|br|p|div)\b/i.test(html.slice(lt, lt + 12)) ? ' ' : '';
+    i = gt + 1;
+  }
+  return text
     .replace(/&(?:#x([0-9a-f]+)|#(\d+)|([a-z]+));/gi, (m, hex, dec, name) => {
       if (name) return ENTITIES[name.toLowerCase()] ?? m;
       const code = hex ? parseInt(hex, 16) : parseInt(dec, 10);

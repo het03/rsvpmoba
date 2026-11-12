@@ -70,8 +70,11 @@ export default function RootLayout() {
     'Inter-ExtraBold': Inter_800ExtraBold,
   });
 
+  // The tables must exist before any screen queries them (a fresh install creates them here). A failure is logged and
+  // the app still opens, as before.
+  const [dbReady, setDbReady] = useState(false);
   useEffect(() => {
-    initDb().catch(e => console.error('initDb failed:', e));
+    initDb().catch(e => console.error('initDb failed:', e)).finally(() => setDbReady(true));
   }, []);
 
   // The saved theme is read before the first screen draws, so a forced Dark never flashes Light first.
@@ -87,12 +90,12 @@ export default function RootLayout() {
   }, [theme.bg]);
 
   useEffect(() => {
-    if ((loaded || error) && themeReady) {
+    if ((loaded || error) && themeReady && dbReady) {
       SplashScreen.hideAsync();
     }
-  }, [loaded, error, themeReady]);
+  }, [loaded, error, themeReady, dbReady]);
 
-  if ((!loaded && !error) || !themeReady) {
+  if ((!loaded && !error) || !themeReady || !dbReady) {
     return null;
   }
 

@@ -49,6 +49,7 @@
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
+    "test:stress": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --disable-warning=DEP0205 --disable-warning=ExperimentalWarning --import ./tests/loader/register.mjs --max-old-space-size=4096 --test --test-timeout=900000 \"tests/stress/*.stress.mjs\"",
     "build:epub-libs": "node ./scripts/build-epub-libs.mjs",
     "build:notices": "node ./scripts/build-notices.mjs",
     "android": "expo run:android",

@@ -56,6 +56,28 @@ describe('theme store', () => {
     assert.equal(calls, 0);
   });
 
+  test('unreadable storage on startup falls back to the current theme instead of throwing', async () => {
+    await setThemeMode('dark');
+    const real = AsyncStorage.getItem;
+    AsyncStorage.getItem = async () => { throw new Error('storage down'); };
+    try {
+      assert.equal(await loadThemeMode(), 'dark');
+    } finally {
+      AsyncStorage.getItem = real;
+    }
+  });
+
+  test('a theme still applies at once even if saving it fails', async () => {
+    const real = AsyncStorage.setItem;
+    AsyncStorage.setItem = async () => { throw new Error('disk full'); };
+    try {
+      await setThemeMode('dark');
+      assert.equal(getThemeMode(), 'dark');
+    } finally {
+      AsyncStorage.setItem = real;
+    }
+  });
+
   test('every listener is told, not just the first', async () => {
     const seen = [];
     const offs = [1, 2, 3].map(n => subscribeThemeMode(() => seen.push(n)));
