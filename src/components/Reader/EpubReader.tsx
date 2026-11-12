@@ -1,3 +1,4 @@
+import { EPUBJS_SRC, JSZIP_SRC } from '@/lib/epubLibs.generated';
 import { type ReaderPrefs, THEMES } from '@/lib/readerPrefs';
 import { SELECTION_MENU, type SelectionInfo } from '@/lib/selectionMenu';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
@@ -37,7 +38,7 @@ function openExternal(url: unknown) {
 }
 
 function toSelection(msg: any): SelectionInfo {
-  return { fraction: msg.percentage, text: msg.text ?? '', href: msg.href, wordOffset: msg.wordOffset };
+  return { fraction: msg.percentage, text: msg.text ?? '', href: msg.href, wordOffset: msg.wordOffset, context: msg.context, contextOffset: msg.contextOffset };
 }
 
 // Position stored as percentage × 1000 (integer 0-1000) in the existing word_index column.
@@ -51,14 +52,14 @@ function buildHtml(
   highlight: HighlightTarget | null,
 ): string {
   const t = THEMES[prefs.theme];
-  // jszip must load before epubjs (epubjs expects window.JSZip).
-  // epubjs is not on cdnjs — use jsdelivr.
+  // The libraries are embedded (see scripts/build-epub-libs.mjs), so opening a book needs no network and sends
+  // nothing to a CDN. jszip must come first: epubjs expects window.JSZip.
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"><\/script>
-<script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"><\/script>
+<script>${JSZIP_SRC}<\/script>
+<script>${EPUBJS_SRC}<\/script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { background: ${t.bg}; height: 100%; overflow: hidden; }
@@ -309,14 +310,23 @@ html, body { background: ${t.bg}; height: 100%; overflow: hidden; }
       var text = '';
       try { text = String(contents.window.getSelection()).slice(0, 300); } catch (err) {}
       // Chapter file + words into it, for an exact (not percentage-based) RSVP start.
-      var href = null, wordOffset = null;
+      var href = null, wordOffset = null, context = '', contextOffset = 0;
       try {
         var sec = book.spine.get(contents.sectionIndex);
         href = sec ? sec.href : null;
         var range = contents.window.getSelection().getRangeAt(0);
         wordOffset = wordIndexAtPoint(extractWords(contents.document), range.startContainer, range.startOffset);
+        // The block of text around the selection (windowed so a huge one stays small), for picking out its sentence.
+        var blk = range.startContainer.nodeType === 3 ? range.startContainer.parentNode : range.startContainer;
+        while (blk && blk.parentNode && !/^(P|DIV|LI|BLOCKQUOTE|H[1-6]|TD|DD|DT|SECTION|ARTICLE|BODY)$/.test(blk.nodeName)) blk = blk.parentNode;
+        var pre = contents.document.createRange();
+        pre.setStart(blk, 0);
+        pre.setEnd(range.startContainer, range.startOffset);
+        var at = pre.toString().length, full = blk.textContent || '', win = Math.max(0, at - 1000);
+        context = full.slice(win, at + 1000);
+        contextOffset = at - win;
       } catch (err) {}
-      post({ type: 'selection', percentage: pct, cfiRange: cfiRange, text: text, href: href, wordOffset: wordOffset });
+      post({ type: 'selection', percentage: pct, cfiRange: cfiRange, text: text, href: href, wordOffset: wordOffset, context: context, contextOffset: contextOffset });
     });
 
     book.ready.then(function() {

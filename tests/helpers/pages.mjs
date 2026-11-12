@@ -1,6 +1,9 @@
 // Loads the reader pages' real in-page code into jsdom (a simulated browser) so it can be tested.
 import { JSDOM } from 'jsdom';
+import { EPUBJS_SRC, JSZIP_SRC } from '../../src/lib/epubLibs.generated.ts';
 import { readSource } from './source.mjs';
+
+export { EPUBJS_SRC, JSZIP_SRC };
 
 const THEME = { bg: '#ffffff', fg: '#111111', link: null };
 const PREFS = { fontSize: 17, lineHeight: 1.7, theme: 'light', brightness: 1 };

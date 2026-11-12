@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { normalizeHref } from '../../src/rsvp/anchor.ts';
 import { htmlToText, tokenize } from '../../src/rsvp/tokenize.ts';
-import { buildEpubHtml, htmlDoc, inlineScripts, loadEpubHelpers, randomChapterBody, xhtmlDoc } from '../helpers/pages.mjs';
+import { buildEpubHtml, EPUBJS_SRC, htmlDoc, inlineScripts, JSZIP_SRC, loadEpubHelpers, randomChapterBody, xhtmlDoc } from '../helpers/pages.mjs';
 
 // Arrays made inside jsdom belong to another JavaScript realm; copy them before deep comparison.
 const texts = (extracted) => Array.from(extracted.words, (w) => w.t);
@@ -19,13 +19,26 @@ describe('EPUB page: script integrity', () => {
     ['highlight text that tries to close the script block', { highlight: { href: 'a.xhtml', wordOffset: 1, text: '</script><img onerror=alert(1)>' } }],
   ];
   for (const [name, options] of variants) {
-    test(`page parses and stays one script block: ${name}`, () => {
+    test(`page parses; two library blocks then exactly one app script block: ${name}`, () => {
       const html = buildEpubHtml(options);
       const scripts = inlineScripts(html);
-      assert.equal(scripts.length, 1);
-      assert.doesNotThrow(() => new Function(scripts[0]));
+      assert.equal(scripts.length, 3);
+      assert.equal(scripts[0], JSZIP_SRC);
+      assert.equal(scripts[1], EPUBJS_SRC);
+      for (const s of scripts) assert.doesNotThrow(() => new Function(s));
     });
   }
+
+  test('the page loads nothing from the network: no external scripts, no CDN hosts', () => {
+    const html = buildEpubHtml({});
+    assert.doesNotMatch(html, /<script[^>]*\ssrc\s*=/i);
+    assert.ok(!html.includes('cdn.jsdelivr.net') && !html.includes('cdnjs.cloudflare.com') && !html.includes('unpkg.com'));
+  });
+
+  test('jszip is defined before epub.js runs (epub.js expects window.JSZip)', () => {
+    const html = buildEpubHtml({});
+    assert.ok(html.indexOf(JSZIP_SRC) < html.indexOf(EPUBJS_SRC));
+  });
 
   test('includes the behaviours we rely on', () => {
     const html = buildEpubHtml({ theme: { bg: '#141418', fg: '#E8E6DF', link: '#8FB4E8' } });

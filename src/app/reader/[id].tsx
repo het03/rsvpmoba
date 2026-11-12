@@ -4,9 +4,12 @@ import TxtReader from '@/components/Reader/TxtReader';
 import RsvpReader from '@/components/Reader/RsvpReader';
 import NoticeModal, { type Notice } from '@/components/NoticeModal';
 import Scrubber from '@/components/Shared/Scrubber';
+import DefinitionModal, { type DefineRequest } from '@/components/Vault/DefinitionModal';
 import { getDb, type Book } from '@/db';
 import { parseEpub } from '@/lib/epub';
 import { type ReaderPrefs, THEMES, loadPrefs } from '@/lib/readerPrefs';
+import { detectLanguage } from '@/lib/language';
+import { extractSentence } from '@/lib/sentence';
 import { webGetFile } from '@/lib/webFileStore';
 import type { SelectionInfo } from '@/lib/selectionMenu';
 import { findAnchor, findChapter, findNear, type RsvpAnchor } from '@/rsvp/anchor';
@@ -62,6 +65,8 @@ export default function ReaderScreen() {
   const [highlightEpub, setHighlightEpub] = useState<HighlightTarget | null>(null);
   const [rsvpStart, setRsvpStart] = useState(0);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [define, setDefine] = useState<DefineRequest | null>(null);
+  const bookLanguage = useRef<string | null>(null);
   // True while opening straight into RSVP, so the normal reader never flashes.
   const [launchingRsvp, setLaunchingRsvp] = useState(mode === 'rsvp');
 
@@ -359,6 +364,16 @@ export default function ReaderScreen() {
   startRsvpRef.current = startRsvp;
   const onSelectionAction = useCallback((key: string, sel: SelectionInfo) => {
     if (key === 'rsvp') void startRsvpRef.current(sel.fraction, sel);
+    else if (key === 'define') {
+      // Judge the language from the whole paragraph; a short one may not say, so fall back to what this book has been.
+      const detected = detectLanguage(sel.context ?? '');
+      if (detected) bookLanguage.current = detected;
+      setDefine({
+        text: sel.text,
+        context: extractSentence(sel.context ?? '', sel.contextOffset ?? 0),
+        language: detected ?? bookLanguage.current,
+      });
+    }
   }, []);
   const onSelectionFallback = useCallback((sel: SelectionInfo) => {
     setRsvpFrom({ fraction: sel.fraction, anchor: sel });
@@ -511,6 +526,7 @@ export default function ReaderScreen() {
       )}
 
       <NoticeModal notice={notice} onClose={() => setNotice(null)} />
+      <DefinitionModal request={define} bookId={book.id} bookTitle={book.title} onClose={() => setDefine(null)} />
     </View>
   );
 }

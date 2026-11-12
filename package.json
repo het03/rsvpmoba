@@ -7,6 +7,7 @@
     "@expo-google-fonts/inter": "^0.4.2",
     "@expo/ui": "~57.0.12",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "epubjs": "0.3.93",
     "expo": "~57.0.15",
     "expo-constants": "~57.0.13",
     "expo-dev-client": "~57.0.21",
@@ -48,6 +49,8 @@
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
+    "build:epub-libs": "node ./scripts/build-epub-libs.mjs",
+    "build:notices": "node ./scripts/build-notices.mjs",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",

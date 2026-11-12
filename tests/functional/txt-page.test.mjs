@@ -225,6 +225,17 @@ describe('TXT page: selection', () => {
     assert.equal(sel.text, PARAS[4].t.slice(from, from + 9));
   });
 
+  test('also reports the paragraph around the selection and where in it the selection starts', () => {
+    const page = openTxtPage(PARAS);
+    const from = offsetOfWord(4, 2);
+    page.select(4, from, from + 9);
+    page.flush();
+    const sel = page.posts.find((p) => p.type === 'selection');
+    assert.equal(sel.context, PARAS[4].t);
+    assert.equal(sel.contextOffset, from);
+    assert.equal(sel.context.slice(sel.contextOffset, sel.contextOffset + 9), sel.text);
+  });
+
   test('a selection starting in the middle of a word counts that word', () => {
     const page = openTxtPage(PARAS);
     const from = offsetOfWord(4, 3) + 2; // two letters into the fourth word

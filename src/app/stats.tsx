@@ -1,11 +1,13 @@
 import GreetingHeader from '@/components/greetings';
 import NotificationsOffModal from '@/components/NotificationsOffModal';
+import VaultModal from '@/components/Vault/VaultModal';
 import WpmChart from '@/components/Stats/WpmChart';
 import { getDb } from '@/db';
 import { useAppTheme } from '@/lib/appTheme';
 import { goalProgress, stepGoal } from '@/lib/dailyGoal';
 import { loadGoal, requestGoalPermission, saveGoal } from '@/lib/goalNotifier';
 import { EMPTY_STATS, formatHour, loadStats, type Stats } from '@/lib/stats';
+import { countVault } from '@/lib/vault';
 import * as Linking from 'expo-linking';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState, type ReactNode } from 'react';
@@ -44,6 +46,12 @@ export default function StatsScreen() {
   const [stats, setStats] = useState<Stats>(EMPTY_STATS);
   const [goal, setGoal] = useState(0);
   const [notifOff, setNotifOff] = useState(false);
+  const [vaultCount, setVaultCount] = useState(0);
+  const [vaultOpen, setVaultOpen] = useState(false);
+
+  const refreshVaultCount = useCallback(() => {
+    getDb().then(countVault).then(setVaultCount).catch(() => {});
+  }, []);
 
   // Stats are a snapshot, not a stream: reload each time the tab is shown so a session you just finished is in it.
   useFocusEffect(useCallback(() => {
@@ -53,8 +61,9 @@ export default function StatsScreen() {
       .then(s => { if (live) setStats(s); })
       .catch(e => console.error('loadStats failed:', e));
     loadGoal().then(g => { if (live) setGoal(g); });
+    refreshVaultCount();
     return () => { live = false; };
-  }, []));
+  }, [refreshVaultCount]));
 
   const changeGoal = async (direction: 1 | -1) => {
     const next = stepGoal(goal, direction);
@@ -166,6 +175,18 @@ export default function StatsScreen() {
           {dnaCard}
         </View>
 
+        <TouchableOpacity activeOpacity={0.7} onPress={() => setVaultOpen(true)}>
+          <Card>
+            <CardLabel>Word vault</CardLabel>
+            <View style={styles.row}>
+              <Figure big value={vaultCount.toLocaleString()} label={vaultCount === 1 ? 'word saved' : 'words saved'} />
+            </View>
+            <Text style={[styles.vaultHint, { color: theme.textSub }]}>
+              {vaultCount === 0 ? 'Select a word while reading and choose Define.' : 'Tap to browse your words'}
+            </Text>
+          </Card>
+        </TouchableOpacity>
+
         {!hasData && (
           <Text style={[styles.empty, { color: theme.textSub }]}>
             Finish a reading session and your stats will build up here.
@@ -177,6 +198,7 @@ export default function StatsScreen() {
       </ScrollView>
 
       <NotificationsOffModal visible={notifOff} onClose={() => setNotifOff(false)} onOpenSettings={openSettings} />
+      <VaultModal visible={vaultOpen} onClose={() => setVaultOpen(false)} onChanged={refreshVaultCount} />
     </SafeAreaView>
   );
 }
@@ -206,6 +228,7 @@ const styles = StyleSheet.create({
   bigNumber: { fontFamily: 'Fraunces-Regular', fontSize: 30 },
   figureLabel: { fontFamily: 'Inter-Medium', fontSize: 12 },
   empty: { fontFamily: 'Inter-Regular', fontSize: 13, textAlign: 'center' },
+  vaultHint: { fontFamily: 'Inter-Regular', fontSize: 12 },
   goalRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   stepper: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   stepperText: { fontFamily: 'Inter-Medium', fontSize: 22, lineHeight: 26 },

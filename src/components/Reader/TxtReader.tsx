@@ -23,7 +23,7 @@ type Props = {
 type Paragraphs = ReturnType<typeof splitParagraphs>;
 
 function toSelection(msg: any): SelectionInfo {
-  return { fraction: msg.fraction, text: msg.text ?? '', wordIndex: msg.wordIndex };
+  return { fraction: msg.fraction, text: msg.text ?? '', wordIndex: msg.wordIndex, context: msg.context, contextOffset: msg.contextOffset };
 }
 
 // Self-contained page (no network). Each paragraph is its own <p>, so any DOM position maps to an
@@ -165,7 +165,7 @@ p { margin: 0 0 1em; white-space: pre-wrap; overflow-wrap: anywhere; }
     selTimer = setTimeout(function() {
       var sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.rangeCount || !paras.length) return;
-      var range = sel.getRangeAt(0), node = range.startContainer, p, k = 0;
+      var range = sel.getRangeAt(0), node = range.startContainer, p, k = 0, off = 0;
       if (node === root) {
         p = paras[Math.min(range.startOffset, paras.length - 1)];
       } else {
@@ -176,12 +176,16 @@ p { margin: 0 0 1em; white-space: pre-wrap; overflow-wrap: anywhere; }
         pre.setStart(p, 0);
         pre.setEnd(range.startContainer, range.startOffset);
         var before = pre.toString();
+        off = before.length;
         k = before.split(/\\s+/).filter(Boolean).length;
         if (before.length && !/\\s$/.test(before)) k = Math.max(0, k - 1);
       }
       var i = Number(p.getAttribute('data-i'));
       var wi = starts[i] + Math.min(k, Math.max(0, DATA[i].n - 1));
-      post({ type: 'selection', wordIndex: wi, fraction: TOTAL > 0 ? wi / TOTAL : 0, text: String(sel).slice(0, 300) });
+      // The paragraph around the selection (windowed so a huge one stays small), for picking out its sentence.
+      var full = p.textContent || '', from = Math.max(0, off - 1000);
+      post({ type: 'selection', wordIndex: wi, fraction: TOTAL > 0 ? wi / TOTAL : 0, text: String(sel).slice(0, 300),
+        context: full.slice(from, off + 1000), contextOffset: off - from });
     }, 250);
   });
 

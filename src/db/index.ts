@@ -34,6 +34,16 @@ export async function initDb(): Promise<void> {
     'CREATE TABLE IF NOT EXISTS sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER, start_time INTEGER NOT NULL, end_time INTEGER, words_read INTEGER NOT NULL DEFAULT 0, avg_wpm REAL NOT NULL DEFAULT 0, mode TEXT NOT NULL DEFAULT "normal")'
   );
 
+  // Word Vault. Definitions are cached so repeat lookups work offline. Saved words keep a snapshot of the book title
+  // and the sentence they came from, so they stay meaningful after the book is removed. The review columns
+  // (next_review, interval_days, ease) are for spaced repetition.
+  await db.runAsync(
+    'CREATE TABLE IF NOT EXISTS word_cache (word TEXT PRIMARY KEY, entry TEXT NOT NULL, fetched_at INTEGER NOT NULL)'
+  );
+  await db.runAsync(
+    "CREATE TABLE IF NOT EXISTS vocab_words (id INTEGER PRIMARY KEY AUTOINCREMENT, word TEXT NOT NULL, definition TEXT NOT NULL, context TEXT NOT NULL DEFAULT '', book_id INTEGER, book_title TEXT NOT NULL DEFAULT '', saved_at INTEGER NOT NULL, next_review INTEGER NOT NULL, interval_days INTEGER NOT NULL DEFAULT 1, ease REAL NOT NULL DEFAULT 2.5, UNIQUE (word, context))"
+  );
+
   // Schema migrations via PRAGMA user_version
   const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
   const version = row?.user_version ?? 0;
