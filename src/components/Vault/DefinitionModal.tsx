@@ -1,6 +1,6 @@
 import { getDb } from '@/db';
 import { useAppTheme } from '@/lib/appTheme';
-import { firstWord, licenseVersion, lookupWord, summarize, type LookupResult } from '@/lib/dictionary';
+import { firstWord, lookupWord, summarize, type LookupResult } from '@/lib/dictionary';
 import { isSaved, saveWord } from '@/lib/vault';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -126,7 +126,7 @@ export default function DefinitionModal({ request, bookId, bookTitle, onClose }:
             )}
           </View>
 
-          {result?.status === 'found' && <WiktionaryCredit word={result.entry.word} versions={[licenseVersion(result.entry)]} />}
+          {result?.status === 'found' && <WiktionaryCredit word={result.entry.word} />}
         </Pressable>
       </Pressable>
     </Modal>

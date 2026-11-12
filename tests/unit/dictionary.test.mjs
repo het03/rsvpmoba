@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { cleanWord, detectScript, firstWord, licenseVersion, MAX_MEANINGS, parseEntry, parseWiktionary, stripHtml, summarize } from '../../src/lib/dictionary.ts';
+import { cleanWord, detectScript, firstWord, MAX_MEANINGS, parseWiktionary, stripHtml, summarize } from '../../src/lib/dictionary.ts';
 
 describe('cleanWord', () => {
   test('strips punctuation and lower-cases', () => {
@@ -37,49 +37,6 @@ describe('cleanWord', () => {
   test('no word at all gives an empty string', () => {
     assert.equal(cleanWord(''), '');
     assert.equal(cleanWord('— … 123'), '');
-  });
-});
-
-const sample = [
-  {
-    word: 'run',
-    phonetic: '/rʌn/',
-    meanings: [
-      { partOfSpeech: 'verb', definitions: [{ definition: 'To move quickly on foot.', example: 'She runs daily.' }, { definition: 'To operate.' }] },
-      { partOfSpeech: 'noun', definitions: [{ definition: 'An act of running.' }] },
-    ],
-  },
-  { word: 'run', meanings: [{ partOfSpeech: 'verb', definitions: [{ definition: 'Duplicate part of speech.' }] }, { partOfSpeech: 'adjective', definitions: [{ definition: 'Having been melted.' }] }] },
-];
-
-describe('parseEntry', () => {
-  test('takes the first definition of each part of speech', () => {
-    const e = parseEntry(sample);
-    assert.equal(e.word, 'run');
-    assert.equal(e.phonetic, '/rʌn/');
-    assert.deepEqual(e.meanings.map(m => m.partOfSpeech), ['verb', 'noun', 'adjective']);
-    assert.equal(e.meanings[0].definition, 'To move quickly on foot.');
-    assert.equal(e.meanings[0].example, 'She runs daily.');
-    assert.equal('example' in e.meanings[1], false);
-  });
-
-  test('is capped at MAX_MEANINGS', () => {
-    const many = [{ word: 'x', meanings: ['a', 'b', 'c', 'd', 'e'].map(p => ({ partOfSpeech: p, definitions: [{ definition: p }] })) }];
-    assert.equal(parseEntry(many).meanings.length, MAX_MEANINGS);
-  });
-
-  test('falls back to the pronunciation list when there is no top-level phonetic', () => {
-    const e = parseEntry([{ word: 'a', phonetics: [{ audio: 'x' }, { text: '/eɪ/' }], meanings: [{ partOfSpeech: 'noun', definitions: [{ definition: 'd' }] }] }]);
-    assert.equal(e.phonetic, '/eɪ/');
-  });
-
-  test('anything that is not a usable entry gives null', () => {
-    assert.equal(parseEntry(null), null);
-    assert.equal(parseEntry([]), null);
-    assert.equal(parseEntry({ title: 'No Definitions Found' }), null);
-    assert.equal(parseEntry([{ word: 'x', meanings: [] }]), null);
-    assert.equal(parseEntry([{ word: 'x', meanings: [{ partOfSpeech: 'noun', definitions: [{ definition: '  ' }] }] }]), null);
-    assert.equal(parseEntry([{ meanings: [{ partOfSpeech: 'noun', definitions: [{ definition: 'd' }] }] }]), null);
   });
 });
 
@@ -171,6 +128,26 @@ describe('parseWiktionary', () => {
     assert.equal(parseWiktionary({ de: [{ partOfSpeech: 'Noun', language: 'German', definitions: [{ definition: 'house' }] }] }, 'de', 'Haus', true).language, 'German');
   });
 
+  test('Translingual entries (symbols, ISO codes) come after the real language, not before it', () => {
+    const page = {
+      en: [
+        { partOfSpeech: 'Symbol', language: 'Translingual', definitions: [{ definition: 'ISO 639-3 language code for Chitwania Tharu.' }] },
+        { partOfSpeech: 'Article', language: 'English', definitions: [{ definition: 'Definite article' }] },
+        { partOfSpeech: 'Adverb', language: 'English', definitions: [{ definition: 'By that much' }] },
+      ],
+    };
+    const e = parseWiktionary(page, 'en', 'the');
+    assert.equal(e.language, 'English');
+    assert.deepEqual(e.meanings.map(m => m.partOfSpeech), ['article', 'adverb']);
+  });
+
+  test('a page that is only Translingual still gives that, rather than nothing', () => {
+    const page = { en: [{ partOfSpeech: 'Symbol', language: 'Translingual', definitions: [{ definition: 'a symbol' }] }] };
+    const e = parseWiktionary(page, 'en', 'x');
+    assert.equal(e.language, 'Translingual');
+    assert.equal(e.meanings[0].definition, 'a symbol');
+  });
+
   test('is capped at MAX_MEANINGS', () => {
     const page = { en: ['a', 'b', 'c', 'd', 'e'].map(p => ({ partOfSpeech: p, language: 'English', definitions: [{ definition: p }] })) };
     assert.equal(parseWiktionary(page, 'en', 'x').meanings.length, MAX_MEANINGS);
@@ -185,23 +162,10 @@ describe('parseWiktionary', () => {
   });
 });
 
-describe('licenseVersion', () => {
-  test('free-API entries are credited under 3.0 (as that API labels them); Wiktionary entries under 4.0', () => {
-    assert.equal(parseEntry(sample).source, 'dictionaryapi');
-    assert.equal(licenseVersion(parseEntry(sample)), '3.0');
-    const w = parseWiktionary({ ko: [{ partOfSpeech: 'Noun', language: 'Korean', definitions: [{ definition: 'love' }] }] }, 'ko', '사랑');
-    assert.equal(w.source, 'wiktionary');
-    assert.equal(licenseVersion(w), '4.0');
-  });
-
-  test('an older cached entry with no source is treated as Wiktionary', () => {
-    assert.equal(licenseVersion({ word: 'x', phonetic: '', meanings: [] }), '4.0');
-  });
-});
-
 describe('summarize', () => {
   test('part of speech and definition on one line', () => {
-    assert.equal(summarize(parseEntry(sample)), 'verb — To move quickly on foot.');
+    const e = parseWiktionary({ en: [{ partOfSpeech: 'Verb', language: 'English', definitions: [{ definition: 'To move quickly on foot.' }] }] }, 'en', 'run');
+    assert.equal(summarize(e), 'verb — To move quickly on foot.');
   });
 
   test('no part of speech: just the definition', () => {

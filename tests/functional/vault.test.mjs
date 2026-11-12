@@ -2,17 +2,34 @@
 import assert from 'node:assert/strict';
 import { beforeEach, describe, test } from 'node:test';
 import { getDb, initDb } from '../../src/db/index.ts';
-import { lookupWord } from '../../src/lib/dictionary.ts';
-import { countVault, isSaved, listVault, removeWord, saveWord } from '../../src/lib/vault.ts';
+import { clearCache, countCache, lookupWord } from '../../src/lib/dictionary.ts';
+import { clearVault, countVault, isSaved, listVault, removeWord, saveWord } from '../../src/lib/vault.ts';
 
-const ENTRY = [{ word: 'serendipity', phonetic: '/ˌsɛɹənˈdɪpɪti/', meanings: [{ partOfSpeech: 'noun', definitions: [{ definition: 'A happy accident.' }] }] }];
+const section = (language, partOfSpeech, definition) => [{ partOfSpeech, language, definitions: [{ definition }] }];
+
+// Shaped like a real Wiktionary page: an object keyed by language code.
+const ENTRY = { en: section('English', 'Noun', 'A happy accident.') };
 
 const reply = (status, body) => async () => ({ status, ok: status >= 200 && status < 300, json: async () => body });
 
 function countingFetch(status, body) {
-  const f = async (...args) => { f.calls++; f.urls.push(args[0]); return reply(status, body)(); };
+  const f = async (url, init) => { f.calls++; f.urls.push(url); f.inits.push(init); return reply(status, body)(); };
   f.calls = 0;
   f.urls = [];
+  f.inits = [];
+  return f;
+}
+
+// Serves Wiktionary pages by title, so we can see which pages a word asks for.
+function routedFetch({ wiktionary = {} } = {}) {
+  const f = async (url, init) => {
+    f.urls.push(url);
+    f.inits.push(init);
+    const title = decodeURIComponent(url.split('/page/definition/')[1]);
+    return wiktionary[title] ? reply(200, wiktionary[title])() : reply(404, {})();
+  };
+  f.urls = [];
+  f.inits = [];
   return f;
 }
 
@@ -25,13 +42,14 @@ beforeEach(async () => {
 });
 
 describe('lookupWord', () => {
-  test('fetches a definition and shapes it', async () => {
+  test('fetches a definition from Wiktionary and shapes it', async () => {
     const f = countingFetch(200, ENTRY);
     const r = await lookupWord(await getDb(), '“Serendipity,”', f);
     assert.equal(r.status, 'found');
     assert.equal(r.entry.word, 'serendipity');
+    assert.equal(r.entry.language, 'English');
     assert.equal(r.entry.meanings[0].definition, 'A happy accident.');
-    assert.ok(f.urls[0].endsWith('/entries/en/serendipity'));
+    assert.ok(f.urls[0].endsWith('/page/definition/serendipity'));
   });
 
   test('a second lookup of the same word is served from the cache, even with no network', async () => {
@@ -47,14 +65,16 @@ describe('lookupWord', () => {
 
   test('an unknown word is not-found and is not cached', async () => {
     const db = await getDb();
-    const r = await lookupWord(db, 'zzxqv', countingFetch(404, { title: 'No Definitions Found' }));
+    const r = await lookupWord(db, 'zzxqv', countingFetch(404, { type: 'not_found' }));
     assert.equal(r.status, 'not-found');
     assert.equal((await db.getFirstAsync('SELECT COUNT(*) AS n FROM word_cache')).n, 0);
   });
 
   test('a response with no usable definition is not-found', async () => {
-    const r = await lookupWord(await getDb(), 'odd', countingFetch(200, [{ word: 'odd', meanings: [] }]));
-    assert.equal(r.status, 'not-found');
+    const db = await getDb();
+    assert.equal((await lookupWord(db, 'odd', countingFetch(200, []))).status, 'not-found');
+    assert.equal((await lookupWord(db, 'odd', countingFetch(200, { en: [] }))).status, 'not-found');
+    assert.equal((await lookupWord(db, 'odd', countingFetch(200, { en: section('English', 'Noun', '<span></span>') }))).status, 'not-found');
   });
 
   test('network failure and server errors are unavailable, and are not cached', async () => {
@@ -81,43 +101,36 @@ describe('lookupWord', () => {
   });
 });
 
-// Routes the two dictionaries by URL, so we can see which one a word is sent to.
-function routedFetch({ english, wiktionary = {} }) {
-  const f = async (url, init) => {
-    f.urls.push(url);
-    f.inits.push(init);
-    if (url.includes('api.dictionaryapi.dev')) return english ? reply(english[0], english[1])() : reply(404, {})();
-    const title = decodeURIComponent(url.split('/page/definition/')[1]);
-    return wiktionary[title] ? reply(200, wiktionary[title])() : reply(404, {})();
-  };
-  f.urls = [];
-  f.inits = [];
-  return f;
-}
-
-const KO = { ko: [{ partOfSpeech: 'Noun', language: 'Korean', definitions: [{ definition: '<a href="/wiki/love">love</a>; affection' }] }] };
-
 describe('lookupWord: identifying the app', () => {
-  test('Wikimedia requests carry a User-Agent with contact info (plus Api-User-Agent for browsers); the free API gets neither', async () => {
-    const f = routedFetch({ english: [404, {}], wiktionary: { maison: { fr: section('French', 'Noun', 'house') } } });
-    await lookupWord(await getDb(), 'maison', f, Date.now(), 'en');
-    const free = f.inits[f.urls.findIndex(u => u.includes('dictionaryapi'))];
-    const wiki = f.inits[f.urls.findIndex(u => u.includes('wiktionary'))];
-    assert.equal(free.headers, undefined);
-    assert.match(wiki.headers['User-Agent'], /^rsvpmoba\/\d+\.\d+ \(https:\/\/github\.com\/[^)]+\)$/);
-    assert.equal(wiki.headers['Api-User-Agent'], wiki.headers['User-Agent']);
+  test('every request carries a User-Agent with contact info, plus Api-User-Agent for browsers', async () => {
+    const f = routedFetch({ wiktionary: { maison: { fr: section('French', 'Noun', 'house') } } });
+    await lookupWord(await getDb(), 'maison', f, Date.now(), 'fr');
+    assert.ok(f.inits.length > 0);
+    for (const init of f.inits) {
+      assert.match(init.headers['User-Agent'], /^rsvpmoba\/\d+\.\d+ \(https:\/\/github\.com\/[^)]+\)$/);
+      assert.equal(init.headers['Api-User-Agent'], init.headers['User-Agent']);
+    }
+  });
+
+  test('nothing but Wikimedia is ever contacted', async () => {
+    const f = routedFetch({ wiktionary: { serendipity: ENTRY } });
+    await lookupWord(await getDb(), 'serendipity', f);
+    await lookupWord(await getDb(), 'zzxqv', f);
+    assert.ok(f.urls.every(u => u.startsWith('https://en.wiktionary.org/')));
   });
 });
 
+const KO = { ko: [{ partOfSpeech: 'Noun', language: 'Korean', definitions: [{ definition: '<a href="/wiki/love">love</a>; affection' }] }] };
+
 describe('lookupWord: other languages', () => {
-  test('Korean, Arabic, Hindi and Hebrew words go to Wiktionary, never the English dictionary', async () => {
+  test('Korean, Arabic, Hindi and Hebrew words go to Wiktionary and come back in their own language', async () => {
     const wiktionary = {
       '사랑': KO,
       'كتاب': { ar: [{ partOfSpeech: 'Noun', language: 'Arabic', definitions: [{ definition: 'book' }] }] },
       'किताब': { hi: [{ partOfSpeech: 'Noun', language: 'Hindi', definitions: [{ definition: 'book' }] }] },
       'ספר': { he: [{ partOfSpeech: 'Noun', language: 'Hebrew', definitions: [{ definition: 'book' }] }] },
     };
-    const f = routedFetch({ english: [200, ENTRY], wiktionary });
+    const f = routedFetch({ wiktionary });
     const db = await getDb();
     const langs = [];
     for (const w of ['사랑', 'كتاب', 'किताब', 'ספר']) {
@@ -126,7 +139,6 @@ describe('lookupWord: other languages', () => {
       langs.push(r.entry.language);
     }
     assert.deepEqual(langs, ['Korean', 'Arabic', 'Hindi', 'Hebrew']);
-    assert.ok(f.urls.every(u => u.includes('en.wiktionary.org')));
   });
 
   test('a Korean definition is stripped of HTML and cached for offline use', async () => {
@@ -144,13 +156,13 @@ describe('lookupWord: other languages', () => {
     assert.ok(f.urls[0].endsWith(encodeURIComponent('كتاب')));
   });
 
-  test('a Latin-script word the English dictionary lacks falls back to Wiktionary', async () => {
+  test('a Latin-script word with no known book language takes the first real language on its page', async () => {
     const wiktionary = { maison: { fr: [{ partOfSpeech: 'Noun', language: 'French', definitions: [{ definition: 'house' }] }] } };
     const f = routedFetch({ wiktionary });
     const r = await lookupWord(await getDb(), 'Maison', f);
     assert.equal(r.status, 'found');
     assert.equal(r.entry.language, 'French');
-    assert.ok(f.urls[0].includes('api.dictionaryapi.dev') && f.urls[1].includes('en.wiktionary.org'));
+    assert.equal(f.urls.length, 1);
   });
 
   test('a capitalised word is retried as typed when the lower-case page is missing', async () => {
@@ -161,21 +173,11 @@ describe('lookupWord: other languages', () => {
     assert.ok(f.urls.some(u => u.endsWith('/Haus')));
   });
 
-  test('an English word never touches Wiktionary', async () => {
-    const f = routedFetch({ english: [200, ENTRY] });
-    const r = await lookupWord(await getDb(), 'serendipity', f);
-    assert.equal(r.entry.language, 'English');
-    assert.equal(f.urls.length, 1);
-  });
-
-  test('not found anywhere is not-found; a network failure in the fallback is unavailable; neither is cached', async () => {
+  test('not found is not-found, a network failure is unavailable, and neither is cached', async () => {
     const db = await getDb();
-    assert.equal((await lookupWord(db, '사랑', routedFetch({}))).status, 'not-found');
-    const brokenWiktionary = async (url) => {
-      if (url.includes('wiktionary')) throw new Error('network');
-      return reply(404, {})();
-    };
-    assert.equal((await lookupWord(db, 'maison', brokenWiktionary)).status, 'unavailable');
+    assert.equal((await lookupWord(db, '사랑', routedFetch())).status, 'not-found');
+    const down = async () => { throw new Error('network'); };
+    assert.equal((await lookupWord(db, 'maison', down)).status, 'unavailable');
     assert.equal((await db.getFirstAsync('SELECT COUNT(*) AS n FROM word_cache')).n, 0);
   });
 
@@ -188,8 +190,6 @@ describe('lookupWord: other languages', () => {
   });
 });
 
-const section = (language, partOfSpeech, definition) => [{ partOfSpeech, language, definitions: [{ definition }] }];
-
 // Shaped like the real Wiktionary pages: the same spelling has sections in several languages.
 const PAGES = {
   Haus: { en: section('English', 'Proper noun', 'A surname'), bar: section('Bavarian', 'Noun', 'house'), de: section('German', 'Noun', 'house, building'), lb: section('Luxembourgish', 'Noun', 'house') },
@@ -198,11 +198,13 @@ const PAGES = {
   Die: { en: section('English', 'Proper noun', 'A surname') },
   die: { nl: section('Dutch', 'Pronoun', 'that one'), de: section('German', 'Article', 'the (feminine nominative singular)') },
   maison: { fr: section('French', 'Noun', 'house') },
+  und: { de: section('German', 'Conjunction', 'and') },
+  the: { en: section('English', 'Article', 'Definite article') },
 };
 
 describe('lookupWord: reading a German book', () => {
-  test('goes straight to Wiktionary, tries the word as typed first, and picks the German section', async () => {
-    const f = routedFetch({ english: [200, ENTRY], wiktionary: PAGES });
+  test('tries the word as typed first and picks the German section', async () => {
+    const f = routedFetch({ wiktionary: PAGES });
     const r = await lookupWord(await getDb(), 'Haus,', f, Date.now(), 'de');
     assert.equal(r.status, 'found');
     assert.equal(r.entry.language, 'German');
@@ -231,12 +233,6 @@ describe('lookupWord: reading a German book', () => {
     assert.equal(r.status, 'not-found');
   });
 
-  test('the English dictionary is never asked, so its outages cannot break German lookups', async () => {
-    const f = routedFetch({ english: [502, {}], wiktionary: PAGES });
-    await lookupWord(await getDb(), 'Haus', f, Date.now(), 'de');
-    assert.ok(f.urls.every(u => !u.includes('dictionaryapi')));
-  });
-
   test('French, Spanish and others work the same way', async () => {
     const f = routedFetch({ wiktionary: PAGES });
     const r = await lookupWord(await getDb(), 'maison', f, Date.now(), 'fr');
@@ -245,45 +241,82 @@ describe('lookupWord: reading a German book', () => {
 
   test('the cache is per language: the same spelling is not served across languages', async () => {
     const db = await getDb();
-    const english = [200, [{ word: 'ging', meanings: [{ partOfSpeech: 'noun', definitions: [{ definition: 'English gang' }] }] }]];
-    const f = routedFetch({ english, wiktionary: PAGES });
+    const f = routedFetch({ wiktionary: PAGES });
     const en = await lookupWord(db, 'ging', f, Date.now(), 'en');
     const de = await lookupWord(db, 'ging', f, Date.now(), 'de');
-    assert.equal(en.entry.meanings[0].definition, 'English gang');
+    assert.equal(en.entry.meanings[0].definition, 'A company; troop; a gang.');
     assert.equal(de.entry.meanings[0].definition, 'first/third-person singular preterite of gehen');
     // Each is now cached on its own and works offline.
     const offline = async () => { throw new Error('offline'); };
     assert.equal((await lookupWord(db, 'ging', offline, Date.now(), 'de')).entry.language, 'German');
-    assert.equal((await lookupWord(db, 'ging', offline, Date.now(), 'en')).entry.meanings[0].definition, 'English gang');
+    assert.equal((await lookupWord(db, 'ging', offline, Date.now(), 'en')).entry.meanings[0].definition, 'A company; troop; a gang.');
   });
 });
 
-describe('lookupWord: English with a flaky free API', () => {
-  test('a server error from the free API still gets a second chance at Wiktionary', async () => {
-    const wiktionary = { nicht: { en: section('English', 'Noun', 'a female cousin') } };
-    const f = routedFetch({ english: [502, {}], wiktionary });
-    const r = await lookupWord(await getDb(), 'nicht', f, Date.now(), 'en');
+describe('lookupWord: reading an English book', () => {
+  test('English words come from Wiktionary, lower-case page first', async () => {
+    const f = routedFetch({ wiktionary: PAGES });
+    const r = await lookupWord(await getDb(), 'The', f, Date.now(), 'en');
     assert.equal(r.status, 'found');
-    assert.ok(f.urls[0].includes('dictionaryapi') && f.urls[1].includes('wiktionary'));
+    assert.equal(r.entry.language, 'English');
+    assert.equal(r.entry.meanings[0].definition, 'Definite article');
+    assert.deepEqual(f.urls.map(u => u.split('/').pop()), ['the']);
   });
 
-  test('an empty response from the free API (invalid JSON) is handled the same way', async () => {
-    const f = async (url) => {
-      if (url.includes('dictionaryapi')) return { status: 200, ok: true, json: async () => { throw new SyntaxError('Unexpected end of JSON input'); } };
-      return reply(200, { en: section('English', 'Noun', 'a company; troop') })();
-    };
-    const r = await lookupWord(await getDb(), 'ging', f, Date.now(), 'en');
-    assert.equal(r.status, 'found');
-  });
-
-  test('when the language is known to be English, Wiktionary only answers with its English section', async () => {
-    const f = routedFetch({ english: [404, {}], wiktionary: { und: { de: section('German', 'Conjunction', 'and') } } });
+  test('when the book is known to be English, only the English section counts', async () => {
+    const f = routedFetch({ wiktionary: PAGES });
     assert.equal((await lookupWord(await getDb(), 'und', f, Date.now(), 'en')).status, 'not-found');
   });
 
-  test('both dictionaries failing is unavailable, not not-found', async () => {
+  test('with no known language an English-looking word still finds whatever the page has', async () => {
+    const f = routedFetch({ wiktionary: PAGES });
+    const r = await lookupWord(await getDb(), 'und', f);
+    assert.equal(r.entry.language, 'German');
+  });
+
+  test('Wiktionary being down is unavailable, not not-found', async () => {
     const down = async () => { throw new Error('offline'); };
     assert.equal((await lookupWord(await getDb(), 'word', down, Date.now(), 'en')).status, 'unavailable');
+  });
+});
+
+describe('settings: clearing data', () => {
+  test('clearing the dictionary cache empties it and leaves saved words alone', async () => {
+    const db = await getDb();
+    await lookupWord(db, 'serendipity', countingFetch(200, ENTRY));
+    await saveWord(db, { word: 'serendipity', definition: 'noun — A happy accident.', context: 'ctx', bookId: 1, bookTitle: 'A Book' });
+    assert.equal(await countCache(db), 1);
+    await clearCache(db);
+    assert.equal(await countCache(db), 0);
+    assert.equal(await countVault(db), 1);
+  });
+
+  test('after clearing, a word is fetched again', async () => {
+    const db = await getDb();
+    const f = countingFetch(200, ENTRY);
+    await lookupWord(db, 'serendipity', f);
+    await clearCache(db);
+    await lookupWord(db, 'serendipity', f);
+    assert.equal(f.calls, 2);
+  });
+
+  test('clearing the vault removes every saved word and leaves the cache alone', async () => {
+    const db = await getDb();
+    await lookupWord(db, 'serendipity', countingFetch(200, ENTRY));
+    await saveWord(db, { word: 'a', definition: 'd', context: '1', bookId: 1, bookTitle: 'B' });
+    await saveWord(db, { word: 'b', definition: 'd', context: '2', bookId: 1, bookTitle: 'B' });
+    await clearVault(db);
+    assert.equal(await countVault(db), 0);
+    assert.deepEqual(await listVault(db), []);
+    assert.equal(await countCache(db), 1);
+  });
+
+  test('clearing something that is already empty is harmless', async () => {
+    const db = await getDb();
+    await clearCache(db);
+    await clearVault(db);
+    assert.equal(await countCache(db), 0);
+    assert.equal(await countVault(db), 0);
   });
 });
 

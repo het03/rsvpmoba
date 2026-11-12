@@ -1,6 +1,10 @@
+import { useSyncExternalStore } from 'react';
 import { useColorScheme } from 'react-native';
+import { resolveScheme, type ThemeMode } from '@/lib/themeMode';
+import { getThemeMode, subscribeThemeMode } from '@/lib/themeStore';
 
 export type AppTheme = {
+  scheme: 'light' | 'dark';
   bg: string;
   surface: string;        // modal / card surface
   text: string;           // primary text
@@ -16,6 +20,7 @@ export type AppTheme = {
 };
 
 const LIGHT: AppTheme = {
+  scheme: 'light',
   bg: '#FFFFFF',
   surface: '#FFFFFF',
   text: '#1E1E1E',
@@ -31,6 +36,7 @@ const LIGHT: AppTheme = {
 };
 
 const DARK: AppTheme = {
+  scheme: 'dark',
   bg: '#111111',
   surface: '#1C1C1E',
   text: '#F0F0F0',
@@ -45,6 +51,13 @@ const DARK: AppTheme = {
   navIconActiveColor: '#111111',
 };
 
+/** The saved theme setting (System default, Light or Dark); re-renders when it changes. */
+export function useThemeMode(): ThemeMode {
+  return useSyncExternalStore(subscribeThemeMode, getThemeMode, getThemeMode);
+}
+
 export function useAppTheme(): AppTheme {
-  return useColorScheme() === 'dark' ? DARK : LIGHT;
+  const mode = useThemeMode();
+  const system = useColorScheme();
+  return resolveScheme(mode, system) === 'dark' ? DARK : LIGHT;
 }

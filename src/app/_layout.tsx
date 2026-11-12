@@ -2,10 +2,12 @@ import Nav from '@/components/Shared/Nav';
 import React from 'react';
 import { initDb } from '@/db';
 import { useAppTheme } from '@/lib/appTheme';
+import { loadThemeMode } from '@/lib/themeStore';
 import { useFonts } from 'expo-font';
+import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { SplashScreen, Stack, usePathname, useRouter } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { BackHandler, View, useWindowDimensions } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -39,6 +41,8 @@ function RootShell({ children }: { children: React.ReactNode }) {
   const landscape = width > height;
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: theme.bg }}>
+      {/* Explicit, so a forced Light/Dark theme gets matching status-bar icons even when the phone is set the other way. */}
+      <StatusBar style={theme.scheme === 'dark' ? 'light' : 'dark'} />
       <View style={{ flex: 1, backgroundColor: theme.bg, flexDirection: landscape ? 'row' : 'column' }}>
         {children}
       </View>
@@ -70,6 +74,12 @@ export default function RootLayout() {
     initDb().catch(e => console.error('initDb failed:', e));
   }, []);
 
+  // The saved theme is read before the first screen draws, so a forced Dark never flashes Light first.
+  const [themeReady, setThemeReady] = useState(false);
+  useEffect(() => {
+    loadThemeMode().finally(() => setThemeReady(true));
+  }, []);
+
   // The window's own background shows for a moment while the phone rotates; match it to the theme so
   // rotation doesn't flash white (or black in light mode).
   useEffect(() => {
@@ -77,12 +87,12 @@ export default function RootLayout() {
   }, [theme.bg]);
 
   useEffect(() => {
-    if (loaded || error) {
+    if ((loaded || error) && themeReady) {
       SplashScreen.hideAsync();
     }
-  }, [loaded, error]);
+  }, [loaded, error, themeReady]);
 
-  if (!loaded && !error) {
+  if ((!loaded && !error) || !themeReady) {
     return null;
   }
 

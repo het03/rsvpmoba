@@ -61,3 +61,8 @@ export async function countVault(db: SQLiteDatabase): Promise<number> {
 export async function removeWord(db: SQLiteDatabase, id: number): Promise<void> {
   await db.runAsync('DELETE FROM vocab_words WHERE id = ?', [id]);
 }
+
+/** Deletes every saved word. */
+export async function clearVault(db: SQLiteDatabase): Promise<void> {
+  await db.runAsync('DELETE FROM vocab_words');
+}

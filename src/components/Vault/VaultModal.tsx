@@ -69,7 +69,7 @@ export default function VaultModal({ visible, onClose, onChanged }: Props) {
             />
           )}
 
-          {words.length > 0 && <WiktionaryCredit versions={['4.0', '3.0']} />}
+          {words.length > 0 && <WiktionaryCredit />}
         </Pressable>
       </Pressable>
     </Modal>
