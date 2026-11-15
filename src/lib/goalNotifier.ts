@@ -2,7 +2,7 @@ import { getDb } from '@/db';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import { GOAL_FIRED_KEY, GOAL_KEY, parseGoal, shouldNotifyGoal } from '@/lib/dailyGoal';
+import { GOAL_ALERT_KEY, GOAL_FIRED_KEY, GOAL_KEY, parseGoal, parseGoalAlert, shouldNotifyGoal } from '@/lib/dailyGoal';
 import { dateKey, periodStarts } from '@/lib/stats';
 
 const CHANNEL_ID = 'goal';
@@ -14,6 +14,31 @@ export async function loadGoal(): Promise<number> {
 
 export async function saveGoal(goal: number): Promise<void> {
   await AsyncStorage.setItem(GOAL_KEY, String(goal)).catch(() => {});
+}
+
+export async function loadGoalAlert(): Promise<boolean> {
+  return parseGoalAlert(await AsyncStorage.getItem(GOAL_ALERT_KEY).catch(() => null));
+}
+
+export async function saveGoalAlert(on: boolean): Promise<void> {
+  await AsyncStorage.setItem(GOAL_ALERT_KEY, on ? '1' : '0').catch(() => {});
+}
+
+/**
+ * Where notification permission stands: 'granted', 'blocked' (denied and the system won't ask again, so only the phone's
+ * own settings can change it), 'undetermined' (can still be asked), or 'unsupported' (web, or the check failed).
+ */
+export type NotificationStatus = 'granted' | 'blocked' | 'undetermined' | 'unsupported';
+
+export async function notificationStatus(): Promise<NotificationStatus> {
+  if (!supported) return 'unsupported';
+  try {
+    const p = await Notifications.getPermissionsAsync();
+    if (p.granted) return 'granted';
+    return p.canAskAgain ? 'undetermined' : 'blocked';
+  } catch {
+    return 'unsupported';
+  }
 }
 
 /** Asks for notification permission (and creates the Android channel, which Android 13+ needs before it will prompt). */
@@ -41,6 +66,7 @@ export async function checkDailyGoal(sessionWords: number, now: number = Date.no
   try {
     const goal = await loadGoal();
     if (goal === 0) { console.log('[goal] skipped: no goal set'); return; }
+    if (!(await loadGoalAlert())) { console.log('[goal] skipped: goal alert is switched off'); return; }
 
     const db = await getDb();
     const row = await db.getFirstAsync<{ n: number }>(

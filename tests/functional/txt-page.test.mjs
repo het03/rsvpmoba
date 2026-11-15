@@ -15,6 +15,35 @@ const makeParagraphs = (count = 20, words = 10) =>
 const PARAS = makeParagraphs();
 const TOTAL = 200;
 
+describe('TXT page: theme fade', () => {
+  test('page colours transition, so a new book theme fades in instead of switching at once', () => {
+    const html = buildTxtHtml(PARAS);
+    assert.match(html, /html, body \{ transition: background-color 240ms ease-in-out, color 240ms ease-in-out; \}/);
+  });
+
+  test('the transition does not delay the first draw: it only applies to later colour changes', () => {
+    // The colours are set in the stylesheet before the page paints, so there is nothing to transition from on load.
+    const html = buildTxtHtml(PARAS);
+    assert.ok(html.indexOf('background: #ffffff') < html.indexOf('transition: background-color'));
+  });
+});
+
+describe('TXT page: font', () => {
+  const prefs = { fontSize: 17, lineHeight: 1.7, theme: 'light', brightness: 1, orpHighlight: true };
+
+  test('default is the system font; serif and sans change it', () => {
+    assert.match(buildTxtHtml(PARAS, { prefs: { ...prefs, font: 'default' } }), /font-family:\s*-apple-system, system-ui/);
+    assert.match(buildTxtHtml(PARAS, { prefs: { ...prefs, font: 'serif' } }), /font-family:\s*Georgia/);
+    assert.match(buildTxtHtml(PARAS, { prefs: { ...prefs, font: 'sans' } }), /font-family:\s*"Helvetica Neue"/);
+  });
+
+  test('the page script still parses with each font', () => {
+    for (const font of ['default', 'serif', 'sans']) {
+      for (const s of inlineScripts(buildTxtHtml(PARAS, { prefs: { ...prefs, font } }))) assert.doesNotThrow(() => new Function(s), font);
+    }
+  });
+});
+
 describe('TXT page: building', () => {
   test('renders one paragraph per entry, in order, with its text', () => {
     const page = openTxtPage(PARAS);

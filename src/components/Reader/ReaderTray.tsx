@@ -1,4 +1,5 @@
 import { type ReaderPrefs, type Theme, THEMES, savePrefs } from '@/lib/readerPrefs';
+import { useReaderColors } from '@/lib/useReaderColors';
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -83,14 +84,11 @@ export default function ReaderTray({ visible, prefs, onChange, onClose }: Props)
   const insets = useSafeAreaInsets();
   const translateY = useSharedValue(TRAY_HEIGHT + insets.bottom);
   const startY = useSharedValue(0);
-  const theme = THEMES[prefs.theme];
-  const fg = theme.fg;
-  const bg = theme.bg;
   // Sepia has a warm light background — light slider elements become invisible on it.
-  // Mirror dark-mode: give sliders a dark pill background + light fg so they look
-  // exactly like they do in dark mode regardless of the page tint.
-  const isSepia = prefs.theme === 'sepia';
-  const sliderFg = isSepia ? THEMES['dark'].fg : fg;
+  // Mirror dark-mode: the tray (sliders included) uses the dark colours on Sepia, so they look
+  // exactly like they do in dark mode regardless of the page tint. The colours fade when the theme changes.
+  const { bg, fg } = useReaderColors(prefs.theme === 'sepia' ? 'dark' : prefs.theme);
+  const sliderFg = fg;
 
   const closedY = TRAY_HEIGHT + insets.bottom;
 
@@ -137,11 +135,11 @@ export default function ReaderTray({ visible, prefs, onChange, onClose }: Props)
         style={[
           styles.tray,
           {
-            backgroundColor: isSepia ? THEMES['dark'].bg : bg,
-            borderColor: (isSepia ? THEMES['dark'].fg : fg) + '18',
+            backgroundColor: bg,
+            borderColor: fg + '18',
             paddingBottom: 20 + insets.bottom,
             height: TRAY_HEIGHT + insets.bottom,
-            shadowColor: isSepia ? THEMES['dark'].fg : fg,
+            shadowColor: fg,
           },
           animStyle,
         ]}
@@ -149,7 +147,7 @@ export default function ReaderTray({ visible, prefs, onChange, onClose }: Props)
         {/* Handle — drag down to close */}
         <GestureDetector gesture={panGesture}>
           <View style={styles.handleHitArea}>
-            <View style={[styles.handle, { backgroundColor: (isSepia ? THEMES['dark'].fg : fg) + '40' }]} />
+            <View style={[styles.handle, { backgroundColor: fg + '40' }]} />
           </View>
         </GestureDetector>
 

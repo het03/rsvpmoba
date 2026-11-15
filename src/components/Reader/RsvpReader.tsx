@@ -1,12 +1,13 @@
 import ProgressBar from '@/components/Shared/ProgressBar';
 import { getDb } from '@/db';
 import { checkDailyGoal } from '@/lib/goalNotifier';
-import { type ReaderPrefs, THEMES } from '@/lib/readerPrefs';
+import { type ReaderPrefs } from '@/lib/readerPrefs';
+import { useReaderColors } from '@/lib/useReaderColors';
 import { getOrpRange } from '@/rsvp/orp';
 import { CURSIVE_RE, RTL_RE } from '@/rsvp/script';
 import { getPauseMultiplier, getRampMultiplier, getWordWeight, prevSentenceStart } from '@/rsvp/pause';
 import type { Tokens } from '@/rsvp/tokenize';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DEFAULT_WPM, loadWpm, MAX_WPM, MIN_WPM, saveWpm, WPM_STEP } from '@/lib/wpm';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, BackHandler, Easing, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -20,10 +21,6 @@ type Props = {
   onExit: (fraction: number, wordIndex: number) => void;
 };
 
-const WPM_KEY = 'rsvpWpm';
-const MIN_WPM = 100;
-const MAX_WPM = 1000;
-const WPM_STEP = 25;
 const SKIP = 10;
 const RESUME_REWIND = 3;
 const PX_PER_WPM_STEP = 24;
@@ -37,12 +34,12 @@ const WARN_COLOR = '#B45309';
 export default function RsvpReader({ bookId, tokens, startFraction, prefs, onExit }: Props) {
   const { words, paraEnds } = tokens;
   const { width } = useWindowDimensions();
-  const theme = THEMES[prefs.theme];
+  const theme = useReaderColors(prefs.theme);
   const last = Math.max(0, words.length - 1);
 
   const [index, setIndex] = useState(() => Math.min(last, Math.round(startFraction * words.length)));
   const [playing, setPlaying] = useState(true);
-  const [wpm, setWpm] = useState(300);
+  const [wpm, setWpm] = useState(DEFAULT_WPM);
   const [breakDue, setBreakDue] = useState(false);
 
   const indexRef = useRef(index);
@@ -58,10 +55,7 @@ export default function RsvpReader({ bookId, tokens, startFraction, prefs, onExi
   const playStart = useRef<number | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem(WPM_KEY).then(v => {
-      const n = Number(v);
-      if (n >= MIN_WPM && n <= MAX_WPM) setWpm(n);
-    }).catch(() => {});
+    loadWpm().then(setWpm);
 
     sessionP.current = getDb().then(db =>
       db.runAsync(
@@ -217,7 +211,7 @@ export default function RsvpReader({ bookId, tokens, startFraction, prefs, onExi
     })
     .onEnd(e => {
       if (Math.abs(e.translationY) > Math.abs(e.translationX)) {
-        AsyncStorage.setItem(WPM_KEY, String(wpmRef.current)).catch(() => {});
+        saveWpm(wpmRef.current);
         return;
       }
       if (Math.abs(e.translationX) < 40) return;
@@ -240,6 +234,8 @@ export default function RsvpReader({ bookId, tokens, startFraction, prefs, onExi
     ? Math.max(18, Math.min(44, Math.floor((width - 48) / (Math.max(word.length, 1) * 0.6))))
     : Math.max(18, Math.min(44, Math.floor((width / 2 - 24) / (side * 0.62))));
   const wordStyle = { color: theme.fg, fontSize, fontFamily: 'Fraunces-Regular' };
+  // With the highlight off the focus letter looks like the rest of the word; the word is still centred on it.
+  const orpStyle = prefs.orpHighlight ? { color: ORP_COLOR } : undefined;
   const progress = words.length > 0 ? index / words.length : 0;
   const wpmColor = wpm > DROP_WPM ? ORP_COLOR : wpm > COMFORT_WPM ? WARN_COLOR : theme.fg;
   // Above ~500 WPM comprehension starts to slip, and drops noticeably past ~600.
@@ -266,7 +262,7 @@ export default function RsvpReader({ bookId, tokens, startFraction, prefs, onExi
             <View style={styles.cursiveRow}>
               <Text style={wordStyle} numberOfLines={1}>
                 {word.slice(0, orpStart)}
-                <Text style={{ color: ORP_COLOR }}>{word.slice(orpStart, orpEnd)}</Text>
+                <Text style={orpStyle}>{word.slice(orpStart, orpEnd)}</Text>
                 {word.slice(orpEnd)}
               </Text>
             </View>
@@ -275,7 +271,7 @@ export default function RsvpReader({ bookId, tokens, startFraction, prefs, onExi
               <View style={[styles.left, rtl && { alignItems: 'flex-start' }]}>
                 <Text style={wordStyle} numberOfLines={1}>{word.slice(0, orpStart)}</Text>
               </View>
-              <Text style={[wordStyle, { color: ORP_COLOR, fontFamily: 'Fraunces-Bold' }]}>{word.slice(orpStart, orpEnd)}</Text>
+              <Text style={[wordStyle, orpStyle, prefs.orpHighlight && { fontFamily: 'Fraunces-Bold' }]}>{word.slice(orpStart, orpEnd)}</Text>
               <View style={[styles.right, rtl && { alignItems: 'flex-end' }]}>
                 <Text style={wordStyle} numberOfLines={1}>{word.slice(orpEnd)}</Text>
               </View>

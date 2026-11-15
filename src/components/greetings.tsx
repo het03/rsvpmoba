@@ -4,9 +4,11 @@ import { useAppTheme } from '@/lib/appTheme';
 
 interface GreetingHeaderProps {
     title: string;
+    /** Show the "good morning" line above the title. Off leaves just the title. */
+    greeting?: boolean;
 }
 
-export default function GreetingHeader({ title }: GreetingHeaderProps) {
+export default function GreetingHeader({ title, greeting: showGreeting = true }: GreetingHeaderProps) {
     const theme = useAppTheme();
     const [greeting, setGreeting] = useState(() => getGreeting());
 
@@ -27,7 +29,7 @@ export default function GreetingHeader({ title }: GreetingHeaderProps) {
 
     return (
         <View style={styles.textGroup}>
-            <Text style={[styles.greetings, { color: theme.text }]}>{greeting}</Text>
+            {showGreeting && <Text style={[styles.greetings, { color: theme.text }]}>{greeting}</Text>}
             <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
         </View>
     );

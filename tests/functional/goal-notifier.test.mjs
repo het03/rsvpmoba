@@ -3,8 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import assert from 'node:assert/strict';
 import { beforeEach, describe, test } from 'node:test';
 import { getDb, initDb } from '../../src/db/index.ts';
-import { GOAL_FIRED_KEY, GOAL_KEY } from '../../src/lib/dailyGoal.ts';
-import { checkDailyGoal, loadGoal, requestGoalPermission, saveGoal } from '../../src/lib/goalNotifier.ts';
+import { GOAL_ALERT_KEY, GOAL_FIRED_KEY, GOAL_KEY } from '../../src/lib/dailyGoal.ts';
+import { checkDailyGoal, loadGoal, loadGoalAlert, notificationStatus, requestGoalPermission, saveGoal, saveGoalAlert } from '../../src/lib/goalNotifier.ts';
 import { dateKey } from '../../src/lib/stats.ts';
 import * as notifications from '../shims/expo-notifications.mjs';
 
@@ -30,6 +30,63 @@ describe('goal storage', () => {
     assert.equal(await loadGoal(), 1500);
     await AsyncStorage.setItem(GOAL_KEY, 'lots');
     assert.equal(await loadGoal(), 0);
+  });
+});
+
+describe('goal alert switch', () => {
+  test('is on until it is turned off, and remembers either choice', async () => {
+    assert.equal(await loadGoalAlert(), true);
+    await saveGoalAlert(false);
+    assert.equal(await loadGoalAlert(), false);
+    assert.equal(await AsyncStorage.getItem(GOAL_ALERT_KEY), '0');
+    await saveGoalAlert(true);
+    assert.equal(await loadGoalAlert(), true);
+  });
+
+  test('off: crossing the goal sends nothing and does not use up the day', async () => {
+    await saveGoal(1000);
+    await saveGoalAlert(false);
+    await addSession(1200);
+    await checkDailyGoal(400, NOW);
+    assert.equal(scheduled().length, 0);
+    assert.equal(await AsyncStorage.getItem(GOAL_FIRED_KEY), null);
+  });
+
+  test('turned back on, the next crossing notifies', async () => {
+    await saveGoal(1000);
+    await saveGoalAlert(false);
+    await addSession(1200);
+    await checkDailyGoal(400, NOW);
+    await saveGoalAlert(true);
+    await checkDailyGoal(400, NOW);
+    assert.equal(scheduled().length, 1);
+  });
+});
+
+describe('notificationStatus', () => {
+  test('granted', async () => {
+    assert.equal(await notificationStatus(), 'granted');
+  });
+
+  test('not granted but can still be asked: undetermined', async () => {
+    notifications.state.permission = { granted: false, canAskAgain: true };
+    assert.equal(await notificationStatus(), 'undetermined');
+  });
+
+  test('not granted and cannot be asked again: blocked', async () => {
+    notifications.state.permission = { granted: false, canAskAgain: false };
+    assert.equal(await notificationStatus(), 'blocked');
+  });
+
+  test('never prompts, only reads', async () => {
+    notifications.state.permission = { granted: false, canAskAgain: true };
+    await notificationStatus();
+    assert.ok(!notifications.state.calls.some((c) => c[0] === 'requestPermissions'));
+  });
+
+  test('a failure inside the notifications library is unsupported, not a crash', async () => {
+    notifications.state.throwOn = 'getPermissions';
+    assert.equal(await notificationStatus(), 'unsupported');
   });
 });
 

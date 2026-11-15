@@ -17,6 +17,15 @@ describe('root layout start-up', () => {
     assert.match(earlyReturn, /if \(.*!themeReady.*\) \{\s*return null;/);
   });
 
+  test('theme fades are switched on only once the saved theme is loaded, so start-up never fades', () => {
+    assert.match(earlyReturn, /if \(themeReady\) enableThemeFades\(\)/);
+  });
+
+  test('the window background and screen container follow the wanted theme in one step, not every frame of a fade', () => {
+    assert.match(earlyReturn, /const theme = useTargetTheme\(\)/);
+    assert.ok(!/const theme = useAppTheme\(\)/.test(earlyReturn.slice(0, earlyReturn.indexOf('function NavBar'))));
+  });
+
   test('keeps the splash screen up until fonts, theme and database are all ready', () => {
     assert.match(earlyReturn, /\(loaded \|\| error\) && themeReady && dbReady/);
   });

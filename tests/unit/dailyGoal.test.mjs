@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { GOAL_MAX, GOAL_MIN, GOAL_STEP, goalProgress, parseGoal, shouldNotifyGoal, stepGoal } from '../../src/lib/dailyGoal.ts';
+import { GOAL_MAX, GOAL_MIN, GOAL_STEP, goalProgress, parseGoal, parseGoalAlert, shouldNotifyGoal, stepGoal } from '../../src/lib/dailyGoal.ts';
 
 describe('parseGoal', () => {
   test('accepts whole numbers in range', () => {
@@ -68,5 +68,15 @@ describe('shouldNotifyGoal', () => {
 
   test('never fires with no goal', () => {
     assert.equal(shouldNotifyGoal({ ...base, goal: 0 }), false);
+  });
+});
+
+describe('parseGoalAlert', () => {
+  test('on by default, and for anything but an explicit off', () => {
+    for (const v of [null, '1', '', 'true', 'garbage']) assert.equal(parseGoalAlert(v), true, String(v));
+  });
+
+  test("'0' is off", () => {
+    assert.equal(parseGoalAlert('0'), false);
   });
 });

@@ -9,6 +9,9 @@ export const COMPLETE_THRESHOLD = 0.999;
 // How many recent sessions the speed trend shows.
 export const TREND_SESSIONS = 30;
 
+// How many calendar weeks (Monday to Sunday, the current one included) the reading heatmap shows.
+export const HEATMAP_WEEKS = 17;
+
 export type Stats = {
   words: { today: number; week: number; month: number; total: number };
   /** Average WPM of the most recent sessions, oldest first. */
@@ -16,6 +19,8 @@ export type Stats = {
   /** Start time of each session in `trend`, same order, so a point on the chart can be dated. */
   trendTimes: number[];
   streak: { current: number; longest: number };
+  /** Words read per local day ('YYYY-MM-DD'), for the days in the heatmap window that had any reading. */
+  days: Record<string, number>;
   dna: {
     /** Hour of day (0–23) you most often start reading, or null with no sessions. */
     peakHour: number | null;
@@ -31,6 +36,7 @@ export const EMPTY_STATS: Stats = {
   trend: [],
   trendTimes: [],
   streak: { current: 0, longest: 0 },
+  days: {},
   dna: { peakHour: null, avgWpm: 0, booksFinished: 0, sessions: 0 },
 };
 
@@ -46,6 +52,21 @@ export function dateKey(ms: number): string {
 export function addDays(key: string, n: number): string {
   const [y, m, d] = key.split('-').map(Number);
   return dateKey(new Date(y, m - 1, d + n).getTime());
+}
+
+/** Local midnight at the start of a 'YYYY-MM-DD' day, as a timestamp. */
+export function dayStart(key: string): number {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d).getTime();
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/** '2026-11-12' → 'Thu, Nov 12'. Written out by hand so it reads the same on every device and locale. */
+export function formatDay(key: string): string {
+  const [y, m, d] = key.split('-').map(Number);
+  return `${WEEKDAYS[new Date(y, m - 1, d).getDay()]}, ${MONTHS[m - 1]} ${d}`;
 }
 
 /** Local midnight today, the most recent Monday, and the 1st of this month, as timestamps. */
@@ -140,6 +161,44 @@ export function linePath(points: ChartPoint[]): string {
   return points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
 }
 
+export type HeatLevel = 0 | 1 | 2 | 3 | 4;
+export type HeatCell = { key: string; words: number; level: HeatLevel; future: boolean };
+
+/** 0 for a day with no reading; otherwise 1–4 by how close the day is to the busiest day shown (that day is 4). */
+export function heatLevel(words: number, max: number): HeatLevel {
+  if (!(words > 0) || !(max > 0)) return 0;
+  return Math.min(4, Math.max(1, Math.ceil((words / max) * 4))) as HeatLevel;
+}
+
+/** The first day (a Monday) of the heatmap window that ends with the week containing `now`. */
+export function heatmapStart(now: number, weeks: number = HEATMAP_WEEKS): string {
+  return addDays(dateKey(periodStarts(now).week), -7 * (weeks - 1));
+}
+
+/**
+ * The reading heatmap as columns of weeks, oldest first, each column Monday to Sunday. The last column is the current
+ * week, whose days after today are marked `future` so they can be left blank. Levels are relative to the busiest day
+ * in the window, so the map is useful whether someone reads 500 words a day or 50,000.
+ */
+export function heatmapWeeks(days: Record<string, number>, now: number, weeks: number = HEATMAP_WEEKS): HeatCell[][] {
+  const today = dateKey(now);
+  const first = heatmapStart(now, weeks);
+  let max = 0;
+  for (let i = 0; i < weeks * 7; i++) max = Math.max(max, days[addDays(first, i)] ?? 0);
+
+  const columns: HeatCell[][] = [];
+  for (let w = 0; w < weeks; w++) {
+    const column: HeatCell[] = [];
+    for (let d = 0; d < 7; d++) {
+      const key = addDays(first, w * 7 + d);
+      const words = days[key] ?? 0;
+      column.push({ key, words, level: heatLevel(words, max), future: key > today });
+    }
+    columns.push(column);
+  }
+  return columns;
+}
+
 /** Everything the Stats screen shows, from the database. `now` is injectable for tests. */
 export async function loadStats(db: SQLiteDatabase, now: number = Date.now()): Promise<Stats> {
   const starts = periodStarts(now);
@@ -164,6 +223,17 @@ export async function loadStats(db: SQLiteDatabase, now: number = Date.now()): P
   const startRows = await db.getAllAsync<{ start_time: number }>('SELECT start_time FROM sessions WHERE words_read > 0');
   const startTimes = startRows.map(r => r.start_time);
 
+  // Words per local day for the heatmap window. Grouped here rather than in SQL because days are local time.
+  const windowRows = await db.getAllAsync<{ start_time: number; words_read: number }>(
+    'SELECT start_time, words_read FROM sessions WHERE words_read > 0 AND start_time >= ?',
+    [dayStart(heatmapStart(now))],
+  );
+  const days: Record<string, number> = {};
+  for (const r of windowRows) {
+    const key = dateKey(r.start_time);
+    days[key] = (days[key] ?? 0) + r.words_read;
+  }
+
   const finished = await db.getFirstAsync<{ n: number }>(
     `SELECT COUNT(*) AS n FROM books b
      JOIN reading_positions rp ON rp.book_id = b.id
@@ -181,6 +251,7 @@ export async function loadStats(db: SQLiteDatabase, now: number = Date.now()): P
     trend: recent.map(r => r.avg_wpm).reverse(),
     trendTimes: recent.map(r => r.start_time).reverse(),
     streak: calcStreaks(startTimes.map(dateKey), now),
+    days,
     dna: {
       peakHour: peakHour(startTimes),
       avgWpm: Math.round(totals?.avg ?? 0),

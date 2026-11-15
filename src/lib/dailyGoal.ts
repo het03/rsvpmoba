@@ -4,6 +4,14 @@
 export const GOAL_KEY = 'dailyGoal';
 export const GOAL_FIRED_KEY = 'dailyGoalFiredOn';
 
+/** Whether reaching the goal sends a notification. Stored as '0' or '1'; on unless it was turned off. */
+export const GOAL_ALERT_KEY = 'dailyGoalAlert';
+
+/** Parses the stored switch: only an explicit '0' means off, so a first run or damaged value keeps the alert on. */
+export function parseGoalAlert(raw: string | null): boolean {
+  return raw !== '0';
+}
+
 export const GOAL_STEP = 500;
 export const GOAL_MIN = 500;
 export const GOAL_MAX = 20000;

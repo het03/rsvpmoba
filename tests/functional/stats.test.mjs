@@ -44,6 +44,7 @@ describe('loadStats', () => {
     assert.deepEqual(s.trendTimes, []);
     assert.deepEqual(s.streak, { current: 0, longest: 0 });
     assert.deepEqual(s.dna, { peakHour: null, avgWpm: 0, booksFinished: 0, sessions: 0 });
+    assert.deepEqual(s.days, {});
   });
 
   test('words are bucketed into today, this week (from Monday) and this month', async () => {
@@ -104,6 +105,23 @@ describe('loadStats', () => {
     await addSession(at(2026, 11, 4, 12), 100, 300);
     const s = await loadStats(await getDb(), NOW);
     assert.deepEqual(s.streak, { current: 3, longest: 3 });
+  });
+
+  test('days: words are totalled per local day, across sessions, and empty sessions are left out', async () => {
+    await addSession(at(2026, 11, 11, 7), 100, 300);
+    await addSession(at(2026, 11, 11, 20), 250, 300);
+    await addSession(at(2026, 11, 10, 23, 55), 40, 300);
+    await addSession(at(2026, 11, 9, 0, 5), 60, 300);
+    await addSession(at(2026, 11, 8, 12), 0, 0);
+    const s = await loadStats(await getDb(), NOW);
+    assert.deepEqual(s.days, { '2026-11-11': 350, '2026-11-10': 40, '2026-11-09': 60 });
+  });
+
+  test('days: includes the first day of the heatmap window but nothing before it', async () => {
+    await addSession(at(2026, 7, 20, 0, 0), 11, 300);
+    await addSession(at(2026, 7, 19, 23, 59), 22, 300);
+    const s = await loadStats(await getDb(), NOW);
+    assert.deepEqual(s.days, { '2026-07-20': 11 });
   });
 
   test('Reading DNA: peak hour, mean WPM, session count', async () => {

@@ -59,6 +59,23 @@ describe('EPUB page: script integrity', () => {
     assert.match(buildEpubHtml({ theme: { bg: '#000', fg: '#fff', link: '#8FB4E8' } }), /var linkColor = "#8FB4E8"/);
     assert.match(buildEpubHtml({ theme: { bg: '#fff', fg: '#000', link: null } }), /var linkColor = null/);
   });
+
+  test('theme changes fade: the page and the book document both transition their colours', () => {
+    const html = buildEpubHtml({});
+    assert.match(html, /html, body \{ transition: background-color 240ms ease-in-out, color 240ms ease-in-out; \}/);
+    assert.ok(html.includes("rendition.themes.override('transition', 'background-color 240ms ease-in-out, color 240ms ease-in-out')"));
+    for (const s of inlineScripts(html)) assert.doesNotThrow(() => new Function(s));
+  });
+
+  test('the reading font reaches the page, and every font choice still gives a script that parses', () => {
+    const prefs = { fontSize: 17, lineHeight: 1.7, theme: 'light', brightness: 1 };
+    const cases = { default: 'Georgia', serif: 'Georgia', sans: '"Helvetica Neue"' };
+    for (const [font, expected] of Object.entries(cases)) {
+      const html = buildEpubHtml({ prefs: { ...prefs, font, orpHighlight: true } });
+      assert.match(html, new RegExp(`override\\('font-family', '${expected}`), font);
+      for (const s of inlineScripts(html)) assert.doesNotThrow(() => new Function(s), font);
+    }
+  });
 });
 
 describe('EPUB page: words match the app (randomised)', () => {

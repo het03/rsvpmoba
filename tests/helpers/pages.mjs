@@ -1,12 +1,13 @@
 // Loads the reader pages' real in-page code into jsdom (a simulated browser) so it can be tested.
 import { JSDOM } from 'jsdom';
 import { EPUBJS_SRC, JSZIP_SRC } from '../../src/lib/epubLibs.generated.ts';
+import { fontStack } from '../../src/lib/readerPrefs.ts';
 import { readSource } from './source.mjs';
 
 export { EPUBJS_SRC, JSZIP_SRC };
 
 const THEME = { bg: '#ffffff', fg: '#111111', link: null };
-const PREFS = { fontSize: 17, lineHeight: 1.7, theme: 'light', brightness: 1 };
+const PREFS = { fontSize: 17, lineHeight: 1.7, theme: 'light', brightness: 1, font: 'default', orpHighlight: true };
 
 // ── Page HTML, produced by the app's own template code ────────────────────────────────────────────────
 
@@ -14,9 +15,9 @@ export function buildTxtHtml(paragraphs, { total, initialWord = 0, highlightWord
   const src = readSource('src/components/Reader/TxtReader.tsx');
   const start = src.indexOf('const data = JSON.stringify(paragraphs)');
   const end = src.indexOf('</html>`;', start) + '</html>`;'.length;
-  const build = new Function('paragraphs', 'total', 't', 'prefs', 'initialWord', 'highlightWord', src.slice(start, end));
+  const build = new Function('paragraphs', 'total', 't', 'prefs', 'initialWord', 'highlightWord', 'fontStack', src.slice(start, end));
   const sum = paragraphs.reduce((n, p) => n + p.n, 0);
-  return build(paragraphs, total ?? sum, theme, prefs, initialWord, highlightWord);
+  return build(paragraphs, total ?? sum, theme, prefs, initialWord, highlightWord, fontStack);
 }
 
 export function buildEpubHtml({ theme = THEME, prefs = PREFS, epubSrc = 'file:///book.epub', initialPct = 0, cachedLocations = null, highlight = null } = {}) {

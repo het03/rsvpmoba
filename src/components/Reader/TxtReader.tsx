@@ -1,4 +1,5 @@
-import { type ReaderPrefs, THEMES } from '@/lib/readerPrefs';
+import { fontStack, type ReaderPrefs, THEMES } from '@/lib/readerPrefs';
+import { useReaderColors } from '@/lib/useReaderColors';
 import { SELECTION_MENU, type SelectionInfo } from '@/lib/selectionMenu';
 import { splitParagraphs } from '@/rsvp/tokenize';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
@@ -45,9 +46,11 @@ function buildHtml(
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <style>
 html, body { margin: 0; padding: 0; background: ${t.bg}; }
+/* Picking another book theme fades the page colours instead of switching at once (the same 240ms as the app's fade). */
+html, body { transition: background-color 240ms ease-in-out, color 240ms ease-in-out; }
 body {
   color: ${t.fg};
-  font-family: -apple-system, system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: ${fontStack(prefs.font, 'txt')};
   font-size: ${prefs.fontSize}px;
   line-height: ${prefs.lineHeight};
   -webkit-text-size-adjust: 100%;
@@ -231,7 +234,7 @@ function TxtReaderWeb({ content, initialWordIndex, prefs, highlightWord, seek, o
     () => buildHtml(splitParagraphs(content), prefs, initialRef.current.word, initialRef.current.highlight),
     [content], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const theme = THEMES[prefs.theme];
+  const theme = useReaderColors(prefs.theme);
 
   useEffect(() => {
     const handler = (e: MessageEvent) => {
@@ -283,7 +286,7 @@ function TxtReaderNative({ content, initialWordIndex, prefs, highlightWord, seek
     () => buildHtml(splitParagraphs(content), prefs, initialRef.current.word, initialRef.current.highlight),
     [content], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const theme = THEMES[prefs.theme];
+  const theme = useReaderColors(prefs.theme);
 
   useEffect(() => {
     if (!didLoadRef.current) return;

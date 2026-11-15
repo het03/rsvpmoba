@@ -1,5 +1,6 @@
 import { EPUBJS_SRC, JSZIP_SRC } from '@/lib/epubLibs.generated';
-import { type ReaderPrefs, THEMES } from '@/lib/readerPrefs';
+import { fontStack, type ReaderPrefs, THEMES } from '@/lib/readerPrefs';
+import { useReaderColors } from '@/lib/useReaderColors';
 import { SELECTION_MENU, type SelectionInfo } from '@/lib/selectionMenu';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Linking, Platform, StyleSheet, View } from 'react-native';
@@ -63,6 +64,8 @@ function buildHtml(
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { background: ${t.bg}; height: 100%; overflow: hidden; }
+/* Picking another book theme fades the page colours instead of switching at once (the same 240ms as the app's fade). */
+html, body { transition: background-color 240ms ease-in-out, color 240ms ease-in-out; }
 #viewer { width: 100vw; height: 100vh; }
 #status {
   position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
@@ -102,9 +105,11 @@ html, body { background: ${t.bg}; height: 100%; overflow: hidden; }
 
     rendition.themes.override('color', '${t.fg}');
     rendition.themes.override('background', '${t.bg}');
+    // The book's own page fades between themes too (it is a separate document inside the page above).
+    rendition.themes.override('transition', 'background-color 240ms ease-in-out, color 240ms ease-in-out');
     rendition.themes.override('font-size', '${prefs.fontSize}px');
     rendition.themes.override('line-height', '${prefs.lineHeight}');
-    rendition.themes.override('font-family', 'Georgia, "Times New Roman", serif');
+    rendition.themes.override('font-family', '${fontStack(prefs.font, 'epub')}');
     rendition.themes.override('padding', '0 20px 80px');
     rendition.themes.override('max-width', '680px');
     rendition.themes.override('margin', '0 auto');
@@ -431,7 +436,7 @@ function EpubReaderWeb({ epubSrc, cachedLocations, totalWords, initialWordIndex,
     () => buildHtml(epubSrc, prefs, initialPctRef.current, cachedLocsRef.current, highlightRef.current),
     [epubSrc], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const theme = THEMES[prefs.theme];
+  const theme = useReaderColors(prefs.theme);
 
   useEffect(() => {
     const handler = (e: MessageEvent) => {
@@ -488,7 +493,7 @@ function EpubReaderNative({ epubSrc, cachedLocations, totalWords, initialWordInd
     () => buildHtml(epubSrc, prefs, initialPctRef.current, cachedLocsRef.current, highlightRef.current),
     [epubSrc], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const theme = THEMES[prefs.theme];
+  const theme = useReaderColors(prefs.theme);
 
   useEffect(() => {
     if (!didLoadRef.current) return;

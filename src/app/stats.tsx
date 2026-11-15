@@ -1,14 +1,16 @@
 import GreetingHeader from '@/components/greetings';
 import NotificationsOffModal from '@/components/NotificationsOffModal';
 import VaultModal from '@/components/Vault/VaultModal';
+import ReadingHeatmap from '@/components/Stats/ReadingHeatmap';
 import WpmChart from '@/components/Stats/WpmChart';
 import { getDb } from '@/db';
-import { useAppTheme } from '@/lib/appTheme';
+import { ACCENT_RED, useAppTheme } from '@/lib/appTheme';
 import { goalProgress, stepGoal } from '@/lib/dailyGoal';
 import { loadGoal, requestGoalPermission, saveGoal } from '@/lib/goalNotifier';
 import { EMPTY_STATS, formatHour, loadStats, type Stats } from '@/lib/stats';
 import { countVault } from '@/lib/vault';
 import * as Linking from 'expo-linking';
+import AddIcon from '../../assets/images/tabIcons/Add.svg';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
@@ -87,7 +89,7 @@ export default function StatsScreen() {
       <CardLabel>Reading streak</CardLabel>
       <View style={styles.row}>
         <Figure big value={String(streak.current)} label={streak.current === 1 ? 'day' : 'days'} />
-        <Figure value={String(streak.longest)} label="longest" />
+        <Figure big value={String(streak.longest)} label="longest" />
       </View>
     </Card>
   );
@@ -124,7 +126,7 @@ export default function StatsScreen() {
       edges={landscape ? ['top', 'right', 'bottom'] : ['top', 'right', 'bottom', 'left']}
     >
       <View style={styles.header}>
-        <GreetingHeader title="Your stats" />
+        <GreetingHeader title="Your stats" greeting={false} />
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
@@ -158,7 +160,7 @@ export default function StatsScreen() {
               onPress={() => changeGoal(1)}
               style={[styles.stepper, { borderColor: theme.borderSubtle }]}
             >
-              <Text style={[styles.stepperText, { color: theme.text }]}>+</Text>
+              <AddIcon width={16} height={16} color={ACCENT_RED} />
             </TouchableOpacity>
           </View>
           {goal > 0 && (
@@ -169,6 +171,11 @@ export default function StatsScreen() {
         </Card>
 
         {streakCard}
+
+        <Card>
+          <CardLabel>Reading calendar · words per day</CardLabel>
+          <ReadingHeatmap days={stats.days} />
+        </Card>
 
         <View style={landscape ? styles.landscapeRow : styles.stack}>
           {trendCard}

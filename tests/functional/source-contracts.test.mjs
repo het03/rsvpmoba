@@ -131,4 +131,70 @@ describe('project hygiene', () => {
       assert.ok(!text.includes(String.fromCharCode(0x2028)) && !text.includes(String.fromCharCode(0x2029)), `${file} contains a raw line-separator character`);
     }
   });
+  test('both readers take their font from the saved reading font', () => {
+    assert.ok(readSource('src/components/Reader/TxtReader.tsx').includes("font-family: ${fontStack(prefs.font, 'txt')}"));
+    assert.ok(readSource('src/components/Reader/EpubReader.tsx').includes("fontStack(prefs.font, 'epub')"));
+  });
+
+  test('the RSVP reader respects the focus-letter switch and shares its speed storage with Settings', () => {
+    const rsvp = readSource('src/components/Reader/RsvpReader.tsx');
+    assert.ok(rsvp.includes('prefs.orpHighlight'));
+    assert.ok(rsvp.includes("from '@/lib/wpm'"));
+    assert.ok(!rsvp.includes("'rsvpWpm'"), 'the speed key lives in lib/wpm only');
+  });
+
+  test('Settings offers the reading, goal and notification controls, and the screens drop the greeting line', () => {
+    const settings = readSource('src/app/settings.tsx');
+    for (const label of ['Card label="Reading"', 'Card label="Daily goal"', 'Starting speed', 'Highlight the focus letter', 'Reading font', 'Tell me when I reach it']) {
+      assert.ok(settings.includes(label), label);
+    }
+    assert.ok(settings.includes('<GreetingHeader title="Settings" greeting={false} />'));
+    assert.ok(readSource('src/app/stats.tsx').includes('<GreetingHeader title="Your stats" greeting={false} />'));
+  });
+
+  test('switches and the + button use the shared accent red; the + is the shelf Add icon and the − stays the text colour', () => {
+    const settings = readSource('src/app/settings.tsx');
+    const stats = readSource('src/app/stats.tsx');
+    assert.ok(readSource('src/lib/appTheme.ts').includes("ACCENT_RED = '#C94040'"));
+    assert.ok(settings.includes('true: ACCENT_RED'));
+    for (const [name, src] of [['settings', settings], ['stats', stats]]) {
+      assert.ok(src.includes("import AddIcon from '../../assets/images/tabIcons/Add.svg'"), `${name} imports the Add icon`);
+      assert.ok(src.includes('<AddIcon width={16} height={16} color={ACCENT_RED} />'), `${name} draws the + in red`);
+    }
+    assert.ok(settings.includes('{ color: theme.text }]}>{glyph}</Text>'));
+    assert.ok(stats.includes('{ color: theme.text }]}>−</Text>'));
+  });
+
+  test('every part of the book reader takes its colours from the fading hook, not straight from THEMES', () => {
+    for (const file of [
+      'src/app/reader/[id].tsx',
+      'src/components/Reader/RsvpReader.tsx',
+      'src/components/Reader/ReaderTray.tsx',
+      'src/components/Reader/TxtReader.tsx',
+      'src/components/Reader/EpubReader.tsx',
+    ]) {
+      const text = readSource(file);
+      assert.ok(text.includes("from '@/lib/useReaderColors'"), `${file} imports the hook`);
+      assert.ok(text.includes('useReaderColors('), `${file} uses the hook`);
+      assert.ok(!/const theme = THEMES\[/.test(text), `${file} still reads the theme straight from THEMES`);
+    }
+  });
+
+  test('the reader screen holds the fade until its saved settings have loaded', () => {
+    assert.ok(readSource('src/app/reader/[id].tsx').includes('useReaderColors(prefs.theme, !loading)'));
+  });
+
+  test('the app and reader fades share one set of rules: off before start-up finishes and with reduce motion', () => {
+    assert.ok(readSource('src/lib/appTheme.ts').includes('fadeDuration()'));
+    assert.ok(readSource('src/lib/useReaderColors.ts').includes('fadeDuration()'));
+    const fade = readSource('src/lib/themeFade.ts');
+    assert.ok(fade.includes('reduceMotion'));
+    assert.ok(fade.includes('enabled && !reduceMotion'));
+  });
+
+  test('the Stats screen shows the reading heatmap from the loaded per-day totals', () => {
+    const stats = readSource('src/app/stats.tsx');
+    assert.ok(stats.includes("import ReadingHeatmap from '@/components/Stats/ReadingHeatmap'"));
+    assert.ok(stats.includes('<ReadingHeatmap days={stats.days} />'));
+  });
 });

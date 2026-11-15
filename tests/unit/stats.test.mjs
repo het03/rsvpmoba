@@ -5,7 +5,13 @@ import {
   calcStreaks,
   chartPoints,
   dateKey,
+  dayStart,
+  formatDay,
   formatHour,
+  HEATMAP_WEEKS,
+  heatLevel,
+  heatmapStart,
+  heatmapWeeks,
   linePath,
   nearestPointIndex,
   peakHour,
@@ -189,5 +195,104 @@ describe('chartPoints / linePath', () => {
   test('path data starts with M and joins with L', () => {
     assert.equal(linePath([{ x: 1, y: 2 }, { x: 3.14159, y: 4 }]), 'M 1.0 2.0 L 3.1 4.0');
     assert.equal(linePath([]), '');
+  });
+});
+
+describe('dayStart / formatDay', () => {
+  test('dayStart is local midnight of the key', () => {
+    assert.equal(dayStart('2026-11-12'), at(2026, 11, 12, 0, 0));
+    assert.equal(dateKey(dayStart('2026-03-08')), '2026-03-08');
+  });
+
+  test('formatDay gives weekday, month and day without padding', () => {
+    assert.equal(formatDay('2026-11-12'), 'Thu, Nov 12');
+    assert.equal(formatDay('2026-01-04'), 'Sun, Jan 4');
+    assert.equal(formatDay('2024-02-29'), 'Thu, Feb 29');
+  });
+});
+
+describe('heatLevel', () => {
+  test('no reading, or nothing to compare to, is level 0', () => {
+    assert.equal(heatLevel(0, 100), 0);
+    assert.equal(heatLevel(-5, 100), 0);
+    assert.equal(heatLevel(50, 0), 0);
+    assert.equal(heatLevel(NaN, 100), 0);
+  });
+
+  test('any reading is at least level 1, and the busiest day is level 4', () => {
+    assert.equal(heatLevel(1, 10_000), 1);
+    assert.equal(heatLevel(100, 100), 4);
+  });
+
+  test('levels step at quarters of the busiest day', () => {
+    assert.deepEqual([25, 26, 50, 51, 75, 76, 100].map(w => heatLevel(w, 100)), [1, 2, 2, 3, 3, 4, 4]);
+  });
+
+  test('never above 4, even if a day somehow exceeds the max', () => {
+    assert.equal(heatLevel(500, 100), 4);
+  });
+});
+
+describe('heatmapWeeks', () => {
+  // Wednesday 11 Nov 2026.
+  const now = at(2026, 11, 11, 15);
+
+  test('the window starts on a Monday, HEATMAP_WEEKS weeks back', () => {
+    assert.equal(heatmapStart(now), '2026-07-20');
+    assert.equal(new Date(dayStart(heatmapStart(now))).getDay(), 1);
+    assert.equal(heatmapStart(now, 1), '2026-11-09');
+  });
+
+  test('is HEATMAP_WEEKS columns of 7 consecutive days, Monday to Sunday, oldest first', () => {
+    const cols = heatmapWeeks({}, now);
+    assert.equal(cols.length, HEATMAP_WEEKS);
+    const keys = cols.flat().map(c => c.key);
+    assert.equal(keys.length, HEATMAP_WEEKS * 7);
+    keys.forEach((k, i) => i > 0 && assert.equal(k, addDays(keys[i - 1], 1)));
+    for (const col of cols) {
+      assert.equal(col.length, 7);
+      assert.equal(new Date(dayStart(col[0].key)).getDay(), 1);
+    }
+    assert.equal(cols[0][0].key, '2026-07-20');
+  });
+
+  test('the last column is this week: today is filled in, later days are future', () => {
+    const last = heatmapWeeks({}, now).at(-1);
+    assert.deepEqual(last.map(c => c.key), ['2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13', '2026-11-14', '2026-11-15']);
+    assert.deepEqual(last.map(c => c.future), [false, false, false, true, true, true, true]);
+    assert.equal(heatmapWeeks({}, now).slice(0, -1).flat().some(c => c.future), false);
+  });
+
+  test('on a Sunday the whole current week is shown and none of it is future', () => {
+    const last = heatmapWeeks({}, at(2026, 11, 15, 9)).at(-1);
+    assert.equal(last[0].key, '2026-11-09');
+    assert.equal(last[6].key, '2026-11-15');
+    assert.equal(last.some(c => c.future), false);
+  });
+
+  test('on a Monday only that day is shown', () => {
+    const last = heatmapWeeks({}, at(2026, 11, 9, 0, 1)).at(-1);
+    assert.deepEqual(last.map(c => c.future), [false, true, true, true, true, true, true]);
+  });
+
+  test('words and levels come from the days given, relative to the busiest day', () => {
+    const cells = new Map(heatmapWeeks({ '2026-11-11': 1000, '2026-11-10': 500, '2026-11-09': 10, '2026-08-01': 1000 }, now).flat().map(c => [c.key, c]));
+    assert.equal(cells.get('2026-11-11').words, 1000);
+    assert.equal(cells.get('2026-11-11').level, 4);
+    assert.equal(cells.get('2026-11-10').level, 2);
+    assert.equal(cells.get('2026-11-09').level, 1);
+    assert.equal(cells.get('2026-11-08').level, 0);
+    assert.equal(cells.get('2026-11-08').words, 0);
+  });
+
+  test('days outside the window do not set the scale', () => {
+    const cells = heatmapWeeks({ '2026-01-01': 1_000_000, '2026-11-11': 100 }, now).flat();
+    assert.equal(cells.find(c => c.key === '2026-11-11').level, 4);
+  });
+
+  test('keeps every day across a daylight-saving change', () => {
+    // Europe/US clocks change in March and November; calendar maths must not skip or repeat a day.
+    const keys = heatmapWeeks({}, at(2026, 3, 29, 12)).flat().map(c => c.key);
+    assert.equal(new Set(keys).size, keys.length);
   });
 });

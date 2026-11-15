@@ -1,7 +1,12 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { useColorScheme } from 'react-native';
+import { fadeDuration } from '@/lib/themeFade';
 import { resolveScheme, type ThemeMode } from '@/lib/themeMode';
 import { getThemeMode, subscribeThemeMode } from '@/lib/themeStore';
+import { createThemeTween } from '@/lib/themeTween';
+
+/** The app's accent red: the reader's focus letter, the speed chart, the heatmap, and switches and + / − buttons. */
+export const ACCENT_RED = '#C94040';
 
 export type AppTheme = {
   scheme: 'light' | 'dark';
@@ -56,8 +61,27 @@ export function useThemeMode(): ThemeMode {
   return useSyncExternalStore(subscribeThemeMode, getThemeMode, getThemeMode);
 }
 
-export function useAppTheme(): AppTheme {
+export { enableThemeFades, THEME_FADE_MS } from '@/lib/themeFade';
+
+const tween = createThemeTween<AppTheme>();
+
+/** The theme that is wanted: the saved setting, or the phone's. Changes in one step, with no fade. */
+export function useTargetTheme(): AppTheme {
   const mode = useThemeMode();
   const system = useColorScheme();
   return resolveScheme(mode, system) === 'dark' ? DARK : LIGHT;
+}
+
+/**
+ * The theme to draw with. When the setting (or the phone's light/dark mode) changes, this moves through the colours in
+ * between, so the whole app fades together; screens just use the colours it returns, as before.
+ */
+export function useAppTheme(): AppTheme {
+  const target = useTargetTheme();
+  const shown = useSyncExternalStore(tween.subscribe, tween.get, tween.get);
+  useEffect(() => {
+    tween.setTarget(target, fadeDuration());
+  }, [target]);
+  // Before the first theme is set the wanted one is used directly, so nothing draws in the wrong colours.
+  return shown ?? target;
 }

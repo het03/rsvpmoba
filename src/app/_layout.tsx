@@ -1,7 +1,7 @@
 import Nav from '@/components/Shared/Nav';
 import React from 'react';
 import { initDb } from '@/db';
-import { useAppTheme } from '@/lib/appTheme';
+import { enableThemeFades, useAppTheme, useTargetTheme } from '@/lib/appTheme';
 import { loadThemeMode } from '@/lib/themeStore';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
@@ -51,7 +51,9 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
-  const theme = useAppTheme();
+  // The wanted theme, not the one mid-fade: the window background and the navigator's screen container change in one
+  // step (they sit behind every screen, which fade their own colours), instead of being updated on every frame.
+  const theme = useTargetTheme();
 
   const [loaded, error] = useFonts({
     // Fraunces
@@ -82,6 +84,11 @@ export default function RootLayout() {
   useEffect(() => {
     loadThemeMode().finally(() => setThemeReady(true));
   }, []);
+
+  // From the first screen on, changing the theme fades; the saved theme loading at start-up must not.
+  useEffect(() => {
+    if (themeReady) enableThemeFades();
+  }, [themeReady]);
 
   // The window's own background shows for a moment while the phone rotates; match it to the theme so
   // rotation doesn't flash white (or black in light mode).

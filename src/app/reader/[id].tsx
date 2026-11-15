@@ -7,7 +7,8 @@ import Scrubber from '@/components/Shared/Scrubber';
 import DefinitionModal, { type DefineRequest } from '@/components/Vault/DefinitionModal';
 import { getDb, type Book } from '@/db';
 import { parseEpub } from '@/lib/epub';
-import { type ReaderPrefs, THEMES, loadPrefs } from '@/lib/readerPrefs';
+import { DEFAULT_PREFS, type ReaderPrefs, loadPrefs } from '@/lib/readerPrefs';
+import { useReaderColors } from '@/lib/useReaderColors';
 import { detectLanguage } from '@/lib/language';
 import { extractSentence } from '@/lib/sentence';
 import { webGetFile } from '@/lib/webFileStore';
@@ -47,10 +48,13 @@ export default function ReaderScreen() {
   const router = useRouter();
 
   const [book, setBook] = useState<Book | null>(null);
-  const [prefs, setPrefs] = useState<ReaderPrefs>({ fontSize: 17, lineHeight: 1.7, theme: 'light', brightness: 1.0 });
+  const [prefs, setPrefs] = useState<ReaderPrefs>(DEFAULT_PREFS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [trayOpen, setTrayOpen] = useState(false);
+  // The page colours fade when the reader picks another book theme. Until the saved settings have loaded they switch at
+  // once, so opening a book that is saved as Dark never fades in from Light.
+  const theme = useReaderColors(prefs.theme, !loading);
 
   // RSVP state. readerKey remounts the normal reader so it resumes at the RSVP exit position.
   const [rsvpTokens, setRsvpTokens] = useState<Tokens | null>(null);
@@ -407,8 +411,6 @@ export default function ReaderScreen() {
       </SafeAreaView>
     );
   }
-
-  const theme = THEMES[prefs.theme];
 
   // Block iOS swipe-back while RSVP is up; it would bypass RSVP's own exit and lose the position.
   const lockSwipeBack = <Stack.Screen options={{ gestureEnabled: !(rsvpOpen || launchingRsvp) }} />;
