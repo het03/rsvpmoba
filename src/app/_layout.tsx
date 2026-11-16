@@ -3,6 +3,7 @@ import React from 'react';
 import { initDb } from '@/db';
 import { enableThemeFades, useAppTheme, useTargetTheme } from '@/lib/appTheme';
 import { backTarget } from '@/lib/navigation';
+import { useSyncTriggers } from '@/lib/useSyncTriggers';
 import { loadThemeMode } from '@/lib/themeStore';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
@@ -90,6 +91,10 @@ export default function RootLayout() {
   useEffect(() => {
     if (themeReady) enableThemeFades();
   }, [themeReady]);
+
+  // Backup and sync starts at the moments the app can act on (open, background, a timer). It does nothing unless sync is
+  // switched on and a Google account is connected, so it is safe to start for everyone.
+  useSyncTriggers(dbReady);
 
   // The window's own background shows for a moment while the phone rotates; match it to the theme so
   // rotation doesn't flash white (or black in light mode).

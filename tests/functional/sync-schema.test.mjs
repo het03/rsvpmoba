@@ -52,7 +52,7 @@ describe('migration to version 2', () => {
     await initDb();
     upgraded = true;
 
-    assert.equal((await one('PRAGMA user_version')).user_version, 2);
+    assert.equal((await one('PRAGMA user_version')).user_version, 3);
     const books =await all('SELECT title, date_added, uid, updated_at FROM books ORDER BY id');
     assert.deepEqual(books.map((b) => [b.title, b.date_added, b.updated_at]), [['A', 111, 111], ['B', 222, 222]]);
     const sessions = await all('SELECT words_read, start_time, uid, updated_at FROM sessions ORDER BY id');
@@ -71,7 +71,7 @@ describe('migration to version 2', () => {
     await initDb();
     await initDb();
     assert.deepEqual((await all('SELECT uid FROM books ORDER BY id')).map((r) => r.uid), before);
-    assert.equal((await one('PRAGMA user_version')).user_version, 2);
+    assert.equal((await one('PRAGMA user_version')).user_version, 3);
   });
 
   test('a migration that fails half way leaves the database exactly as it was', async () => {

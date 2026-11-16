@@ -109,3 +109,19 @@ export async function migrateToV2(db: SQLiteDatabase): Promise<void> {
   for (const entity of OWN_UID) for (const sql of ownUidTriggers(entity)) await db.runAsync(sql);
   for (const sql of positionTriggers) await db.runAsync(sql);
 }
+
+/**
+ * Upgrades the database to version 3 (the caller wraps it in a transaction): the two tables the sync engine needs when
+ * devices disagree about ids or are missing a book.
+ *
+ *  sync_aliases  "this id is the same record as that one": two devices that each added the same book gave it different
+ *                ids; the lower one wins everywhere and the other becomes an alias, so records that still use it resolve.
+ *  sync_parked   records that cannot be applied yet because the book they belong to is not on this phone (a book is not
+ *                added from another device, since it has no file here). They wait, and apply once the same book is added.
+ */
+export async function migrateToV3(db: SQLiteDatabase): Promise<void> {
+  await db.runAsync('CREATE TABLE IF NOT EXISTS sync_aliases (alias TEXT PRIMARY KEY, canonical TEXT NOT NULL)');
+  await db.runAsync(
+    'CREATE TABLE IF NOT EXISTS sync_parked (kind TEXT NOT NULL, id TEXT NOT NULL, updated_at INTEGER NOT NULL, deleted INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (kind, id))',
+  );
+}

@@ -11,6 +11,11 @@ import {
 } from '@/lib/goalNotifier';
 import { DEFAULT_PREFS, loadPrefs, READER_FONTS, savePrefs, type ReaderPrefs } from '@/lib/readerPrefs';
 import { THEME_MODES } from '@/lib/themeMode';
+import { getDriveStore, isDriveConnected } from '@/lib/syncDrive';
+import { getSyncStatus, type SyncStatus } from '@/lib/syncEngine';
+import { disableSync, enableSync } from '@/lib/syncOutbox';
+import { DEFAULT_SYNC_PREFS, EVERY_HOURS_CHOICES, everyLabel, formatAgo, loadSyncPrefs, saveSyncPrefs, type SyncPrefs } from '@/lib/syncPrefs';
+import { runSync } from '@/lib/syncRunner';
 import { loadWpm, MAX_WPM, MIN_WPM, saveWpm, stepWpm } from '@/lib/wpm';
 import { setThemeMode } from '@/lib/themeStore';
 import { clearVault, countVault } from '@/lib/vault';
@@ -135,13 +140,21 @@ export default function SettingsScreen() {
   const [status, setStatus] = useState<NotificationStatus>('undetermined');
   const [notifOff, setNotifOff] = useState(false);
 
+  const [syncPrefs, setSyncPrefs] = useState<SyncPrefs>(DEFAULT_SYNC_PREFS);
+  const [sync, setSync] = useState<SyncStatus>({ enabled: false, pending: 0, lastSyncAt: null, lastError: null });
+  const [connected, setConnected] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
   const refresh = useCallback(() => {
     getDb()
       .then(async db => {
         setCached(await countCache(db));
         setSaved(await countVault(db));
+        setSync(await getSyncStatus(db));
       })
       .catch(() => {});
+    loadSyncPrefs().then(setSyncPrefs);
+    isDriveConnected().then(setConnected);
     loadPrefs().then(setPrefs);
     loadWpm().then(setWpm);
     loadGoal().then(setGoal);
@@ -152,6 +165,28 @@ export default function SettingsScreen() {
   // Everything here is a snapshot: reload whenever the tab is shown, so a goal set on Stats, words saved while reading,
   // or a permission changed in the phone's settings are all current.
   useFocusEffect(refresh);
+
+  const changeSyncPrefs = (change: Partial<SyncPrefs>) => {
+    const next = { ...syncPrefs, ...change };
+    setSyncPrefs(next);
+    saveSyncPrefs(next);
+  };
+
+  const toggleSync = async (on: boolean) => {
+    const db = await getDb();
+    if (on) await enableSync(db);
+    else await disableSync(db);
+    setSync(await getSyncStatus(db));
+    if (on) runSync('manual', { db, getDrive: getDriveStore }).then(async () => setSync(await getSyncStatus(db)));
+  };
+
+  const syncNow = async () => {
+    setSyncing(true);
+    const db = await getDb();
+    await runSync('manual', { db, getDrive: getDriveStore });
+    setSync(await getSyncStatus(db));
+    setSyncing(false);
+  };
 
   const changePrefs = (change: Partial<ReaderPrefs>) => {
     const next = { ...prefs, ...change };
@@ -314,6 +349,70 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             )}
           </View>
+        </Card>
+
+        <Card label="Backup & sync">
+          <SwitchRow
+            title="Back up and sync"
+            hint={connected
+              ? 'Keeps your saved words, reading positions and stats in your own Google Drive, and in step across your phones. Your books stay on each phone.'
+              : 'Needs a Google account. Signing in with Google is coming, so this cannot be turned on yet. Everything stays on this phone until then.'}
+            value={sync.enabled}
+            disabled={!connected}
+            onChange={toggleSync}
+          />
+          <Rule />
+          <SwitchRow
+            title="Sync when I open the app"
+            hint="Brings in changes from your other phones."
+            value={syncPrefs.onOpen}
+            onChange={on => changeSyncPrefs({ onOpen: on })}
+          />
+          <Rule />
+          <SwitchRow
+            title="Sync when I leave the app"
+            hint="Sends what you just did. The phone may stop the app straight after, so anything not sent goes next time."
+            value={syncPrefs.onBackground}
+            onChange={on => changeSyncPrefs({ onBackground: on })}
+          />
+          <Rule />
+          <View style={styles.fontBlock}>
+            <Text style={[styles.rowTitle, { color: theme.text }]}>Also sync while the app is open</Text>
+            <View style={[styles.segments, { borderColor: theme.borderSubtle }]}>
+              {EVERY_HOURS_CHOICES.map(h => {
+                const active = h === syncPrefs.everyHours;
+                return (
+                  <TouchableOpacity
+                    key={h}
+                    accessibilityRole="button"
+                    accessibilityLabel={everyLabel(h)}
+                    accessibilityState={{ selected: active }}
+                    onPress={() => changeSyncPrefs({ everyHours: h })}
+                    style={[styles.segment, active && { backgroundColor: theme.navIconActiveBg }]}
+                  >
+                    <Text style={[styles.segmentText, { color: active ? theme.navIconActiveColor : theme.textSub }]}>{h === 0 ? 'Off' : `${h}h`}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={[styles.rowHint, { color: theme.textSub }]}>
+              A phone cannot sync at an exact time, so these are the moments the app can act on itself.
+            </Text>
+          </View>
+          <Rule />
+          <ActionRow
+            title="Sync now"
+            hint={
+              !sync.enabled
+                ? 'Sync is off.'
+                : sync.lastError
+                  ? `Last attempt failed: ${sync.lastError}`
+                  : `Last synced ${formatAgo(sync.lastSyncAt, Date.now())}${sync.pending > 0 ? ` · ${sync.pending} ${sync.pending === 1 ? 'change' : 'changes'} waiting` : ''}`
+            }
+            action={syncing ? 'Syncing…' : 'Sync now'}
+            disabled={!sync.enabled || !connected || syncing}
+            onPress={syncNow}
+          />
         </Card>
 
         <Card label="Data">

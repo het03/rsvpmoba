@@ -37,7 +37,7 @@ describe('schema and migration', () => {
     assert.ok((await columns('books')).includes('cover_data'));
     const old = await db.getFirstAsync("SELECT title, author, cover_data FROM books WHERE file_path = '/old'");
     assert.deepEqual({ ...old }, { title: 'Old book', author: '', cover_data: null });
-    assert.equal((await db.getFirstAsync('PRAGMA user_version')).user_version, 2);
+    assert.equal((await db.getFirstAsync('PRAGMA user_version')).user_version, 3);
   });
 
   test('creates every table the app uses', async () => {
@@ -48,7 +48,7 @@ describe('schema and migration', () => {
   test('running initDb again is harmless', async () => {
     await initDb();
     await initDb();
-    assert.equal(((await (await getDb()).getFirstAsync('PRAGMA user_version')).user_version), 2);
+    assert.equal(((await (await getDb()).getFirstAsync('PRAGMA user_version')).user_version), 3);
   });
 
   test('the same file cannot be imported twice', async () => {

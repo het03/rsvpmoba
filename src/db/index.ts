@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import { migrateToV2 } from '@/db/syncSchema';
+import { migrateToV2, migrateToV3 } from '@/db/syncSchema';
 import { inTransaction } from '@/db/transaction';
 
 export type Book = {
@@ -24,7 +24,11 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
 }
 
 export async function initDb(): Promise<void> {
-  const db = await getDb();
+  await setupSchema(await getDb());
+}
+
+/** Creates and upgrades every table in the given database. initDb uses the app's database; tests use it on others. */
+export async function setupSchema(db: SQLite.SQLiteDatabase): Promise<void> {
 
   await db.runAsync(
     'CREATE TABLE IF NOT EXISTS books (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, format TEXT NOT NULL, file_path TEXT NOT NULL UNIQUE, file_size INTEGER NOT NULL DEFAULT 0, total_words INTEGER NOT NULL DEFAULT 0, date_added INTEGER NOT NULL)'
@@ -62,6 +66,13 @@ export async function initDb(): Promise<void> {
     await inTransaction(db, async () => {
       await migrateToV2(db);
       await db.runAsync('PRAGMA user_version = 2');
+    });
+  }
+
+  if (version < 3) {
+    await inTransaction(db, async () => {
+      await migrateToV3(db);
+      await db.runAsync('PRAGMA user_version = 3');
     });
   }
 }
