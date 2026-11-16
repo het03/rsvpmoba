@@ -10,7 +10,7 @@ const RECENT_SQL = sqlFrom('src/app/reader.tsx', /`(SELECT b\.id[\s\S]*?)`/);
 const OPEN_UPSERT_SQL = sqlFrom('src/app/reader/[id].tsx', /`(INSERT INTO reading_positions[\s\S]*?excluded\.updated_at)`/);
 const SAVE_POSITION_SQL = sqlFrom('src/app/reader/[id].tsx', /'(INSERT OR REPLACE INTO reading_positions[^']*)'/);
 const SESSION_START_SQL = sqlFrom('src/components/Reader/RsvpReader.tsx', /'(INSERT INTO sessions[^']*)'/);
-const SESSION_END_SQL = sqlFrom('src/components/Reader/RsvpReader.tsx', /'(UPDATE sessions SET[^']*)'/);
+const SESSION_END_SQL = sqlFrom('src/lib/session.ts', /'(UPDATE sessions SET[^']*)'/);
 const SESSION_DROP_SQL = sqlFrom('src/components/Reader/RsvpReader.tsx', /'(DELETE FROM sessions[^']*)'/);
 
 const columns = async (table) => (await (await getDb()).getAllAsync(`PRAGMA table_info(${table})`)).map((c) => c.name);
@@ -37,18 +37,18 @@ describe('schema and migration', () => {
     assert.ok((await columns('books')).includes('cover_data'));
     const old = await db.getFirstAsync("SELECT title, author, cover_data FROM books WHERE file_path = '/old'");
     assert.deepEqual({ ...old }, { title: 'Old book', author: '', cover_data: null });
-    assert.equal((await db.getFirstAsync('PRAGMA user_version')).user_version, 1);
+    assert.equal((await db.getFirstAsync('PRAGMA user_version')).user_version, 2);
   });
 
   test('creates every table the app uses', async () => {
     assert.deepEqual((await columns('reading_positions')).sort(), ['book_id', 'updated_at', 'word_index']);
-    assert.deepEqual((await columns('sessions')).sort(), ['avg_wpm', 'book_id', 'end_time', 'id', 'mode', 'start_time', 'words_read']);
+    assert.deepEqual((await columns('sessions')).sort(), ['avg_wpm', 'book_id', 'end_time', 'id', 'mode', 'start_time', 'uid', 'updated_at', 'words_read']);
   });
 
   test('running initDb again is harmless', async () => {
     await initDb();
     await initDb();
-    assert.equal(((await (await getDb()).getFirstAsync('PRAGMA user_version')).user_version), 1);
+    assert.equal(((await (await getDb()).getFirstAsync('PRAGMA user_version')).user_version), 2);
   });
 
   test('the same file cannot be imported twice', async () => {

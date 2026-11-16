@@ -7,11 +7,12 @@ import ReaderIcon from '../../../assets/images/tabIcons/Reader.svg';
 import StatsIcon from '../../../assets/images/tabIcons/Stats.svg';
 import ProfileIcon from '../../../assets/images/tabIcons/Profile.svg';
 
-const navItems = [
+// Settings is opened from the Profile screen, so the Profile tab stays highlighted while it is open (`also`).
+const navItems: { key: string; href: string; Icon: typeof HomeIcon; also?: string[] }[] = [
     { key: 'home',    href: '/',        Icon: HomeIcon },
     { key: 'reader',  href: '/reader',  Icon: ReaderIcon },
     { key: 'stats',   href: '/stats',   Icon: StatsIcon },
-    { key: 'settings', href: '/settings', Icon: ProfileIcon },
+    { key: 'profile', href: '/profile', Icon: ProfileIcon, also: ['/settings'] },
 ];
 
 const V_ITEM = 48;   // icon button size (matches navItem)
@@ -32,8 +33,8 @@ export default function Nav({ vertical = false }: { vertical?: boolean }) {
                 vertical && styles.containerVertical,
             ]}
         >
-            {navItems.map(({ key, href, Icon }) => {
-                const isActive = pathname === href || (href !== '/' && pathname.startsWith(href + '/'));
+            {navItems.map(({ key, href, Icon, also }) => {
+                const isActive = [href, ...(also ?? [])].some(h => pathname === h || (h !== '/' && pathname.startsWith(h + '/')));
                 return (
                     <Pressable
                         key={key}

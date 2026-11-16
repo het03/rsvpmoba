@@ -1,4 +1,6 @@
 import * as SQLite from 'expo-sqlite';
+import { migrateToV2 } from '@/db/syncSchema';
+import { inTransaction } from '@/db/transaction';
 
 export type Book = {
   id: number;
@@ -52,5 +54,14 @@ export async function initDb(): Promise<void> {
     await db.runAsync('ALTER TABLE books ADD COLUMN author TEXT NOT NULL DEFAULT ""');
     await db.runAsync('ALTER TABLE books ADD COLUMN cover_data TEXT');
     await db.runAsync('PRAGMA user_version = 1');
+  }
+
+  // Version 2: permanent ids, update times and change tracking for sync (see syncSchema.ts). All or nothing: a failure
+  // part way rolls everything back, leaving the database exactly as it was at version 1.
+  if (version < 2) {
+    await inTransaction(db, async () => {
+      await migrateToV2(db);
+      await db.runAsync('PRAGMA user_version = 2');
+    });
   }
 }

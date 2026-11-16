@@ -192,6 +192,25 @@ describe('project hygiene', () => {
     assert.ok(fade.includes('enabled && !reduceMotion'));
   });
 
+  test('the Profile tab opens the Profile screen, Settings is reached from it, and the tab stays lit on Settings', () => {
+    const nav = readSource('src/components/Shared/Nav.tsx');
+    assert.match(nav, /key: 'profile', href: '\/profile', Icon: ProfileIcon, also: \['\/settings'\]/);
+    assert.ok(!/href: '\/settings'/.test(nav), 'Settings is no longer a tab of its own');
+    const profile = readSource('src/app/profile.tsx');
+    assert.ok(profile.includes("router.push('/settings')"));
+    assert.ok(profile.includes('<GreetingHeader title="Profile" greeting={false} />'));
+  });
+
+  test('the Profile screen does not claim Google sign-in works: the button only explains it is coming', () => {
+    const profile = readSource('src/app/profile.tsx');
+    assert.ok(profile.includes('Sign in with Google'));
+    assert.ok(profile.includes('onPress={() => setNotice(SIGN_IN_NOTICE)}'));
+    assert.ok(profile.includes('is not available yet'));
+    for (const lib of ['google-signin', 'expo-auth-session', 'firebase']) {
+      assert.ok(!readSource('package.json').includes(lib), `${lib} is not a dependency yet`);
+    }
+  });
+
   test('the Stats screen shows the reading heatmap from the loaded per-day totals', () => {
     const stats = readSource('src/app/stats.tsx');
     assert.ok(stats.includes("import ReadingHeatmap from '@/components/Stats/ReadingHeatmap'"));

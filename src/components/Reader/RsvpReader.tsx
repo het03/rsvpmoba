@@ -2,6 +2,7 @@ import ProgressBar from '@/components/Shared/ProgressBar';
 import { getDb } from '@/db';
 import { checkDailyGoal } from '@/lib/goalNotifier';
 import { type ReaderPrefs } from '@/lib/readerPrefs';
+import { CHECKPOINT_MS, saveSessionProgress } from '@/lib/session';
 import { useReaderColors } from '@/lib/useReaderColors';
 import { getOrpRange } from '@/rsvp/orp';
 import { CURSIVE_RE, RTL_RE } from '@/rsvp/script';
@@ -164,14 +165,28 @@ export default function RsvpReader({ bookId, tokens, startFraction, prefs, onExi
     sessionDone.current = true;
     const total = playMs.current + (playStart.current !== null ? Date.now() - playStart.current : 0);
     const read = wordsRead.current;
-    const avg = total > 0 ? read / (total / 60000) : 0;
     sessionP.current?.then(id => {
       if (id === null) return;
       return getDb().then(db => read > 0
-        ? db.runAsync('UPDATE sessions SET end_time = ?, words_read = ?, avg_wpm = ? WHERE id = ?', [Date.now(), read, avg, id])
-        : db.runAsync('DELETE FROM sessions WHERE id = ?', [id])
+        ? saveSessionProgress(db, id, read, total)
+        : db.runAsync('DELETE FROM sessions WHERE id = ?', [id]).then(() => undefined)
       ).then(() => checkDailyGoal(read));
     }).catch(() => {});
+  }, []);
+
+  // Save progress every so often while reading, so a killed app (battery saver, dead battery) keeps what was read so far
+  // instead of leaving a session with 0 words. The final save above still has the exact figures.
+  useEffect(() => {
+    const t = setInterval(() => {
+      const read = wordsRead.current;
+      if (sessionDone.current || read <= 0) return;
+      const total = playMs.current + (playStart.current !== null ? Date.now() - playStart.current : 0);
+      sessionP.current?.then(id => {
+        if (id === null || sessionDone.current) return;
+        return getDb().then(db => saveSessionProgress(db, id, read, total));
+      }).catch(() => {});
+    }, CHECKPOINT_MS);
+    return () => clearInterval(t);
   }, []);
 
   // If the screen goes away without an explicit exit, still close out the session row.

@@ -2,6 +2,7 @@ import Nav from '@/components/Shared/Nav';
 import React from 'react';
 import { initDb } from '@/db';
 import { enableThemeFades, useAppTheme, useTargetTheme } from '@/lib/appTheme';
+import { backTarget } from '@/lib/navigation';
 import { loadThemeMode } from '@/lib/themeStore';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
@@ -133,12 +134,13 @@ function NavBar() {
   const insets = useSafeAreaInsets();
   const landscape = width > height;
 
-  // On any tab page other than home, hardware back → go home.
+  // Hardware back goes to the page's parent (Settings → Profile), or home for a tab page. Home (let Android exit
+  // normally) and a book (has its own handler) are left alone.
   useEffect(() => {
-    // Skip for home (let Android exit normally) and reader detail (has its own handler).
-    if (pathname === '/' || pathname.startsWith('/reader/')) return;
+    const target = backTarget(pathname);
+    if (target === null) return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      router.replace('/');
+      router.replace(target as any);
       return true;
     });
     return () => sub.remove();
